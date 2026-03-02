@@ -55,7 +55,7 @@ export default function Home() {
   return (
     <div className="page">
       <div className="container">
-        <h1 className="h1">Quiz Platform</h1>
+        <h1 className="h1">Puffolio</h1>
         <p className="subtitle">
           Banqueo-style learning • Total timer • Study & Exam mode
         </p>
@@ -115,11 +115,6 @@ export default function Home() {
           </section>
         </div>
 
-        <div className="footerLinks">
-          <Link to="/admin">Admin</Link>
-          <span>•</span>
-          <Link to="/review">Weak Review</Link>
-        </div>
       </div>
     </div>
   );

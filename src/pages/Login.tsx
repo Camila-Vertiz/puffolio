@@ -12,7 +12,7 @@ export default function Login() {
 
   return (
     <div style={{ padding: 32 }}>
-      <h1>Quiz Platform</h1>
+      <h1>Puffolio</h1>
       <button onClick={login}>Continue with Google</button>
     </div>
   );
