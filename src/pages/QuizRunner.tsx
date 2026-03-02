@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, Link } from "react-router-dom";
 
 type Question = {
   id: string;
@@ -56,8 +56,8 @@ export default function QuizRunner() {
   const { quizId } = useParams();
   const nav = useNavigate();
 
-  // Draft: configure total time here
-  const totalTimeSec = 5 * 60; // 5 minutes for UI testing
+  // Draft: total time for UI testing
+  const totalTimeSec = 5 * 60;
 
   const questions = useMemo(() => DUMMY_QUESTIONS, []);
   const [idx, setIdx] = useState(0);
@@ -99,8 +99,6 @@ export default function QuizRunner() {
   };
 
   const finish = () => {
-    // In real app: compute score + write batch to Firestore.
-    // For draft: navigate to results with state
     nav(`/result/${quizId ?? "draft"}`, {
       state: {
         quizId,
@@ -117,147 +115,103 @@ export default function QuizRunner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeUp]);
 
-  const progress = `${idx + 1}/${questions.length}`;
-  const selected = answers[current?.id];
+  const progressPct = ((idx + 1) / questions.length) * 100;
+  const selected = answers[current.id];
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Quiz</div>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>#{quizId}</div>
-        </div>
+    <div className="page">
+      <div className="container">
+        <div className="spaceBetween">
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Quiz
+            </div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>#{quizId}</div>
+          </div>
 
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Time remaining</div>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>
-            {formatRemaining(remaining)}
+          <div style={{ textAlign: "right" }}>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Time remaining
+            </div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>
+              {formatRemaining(remaining)}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div
-        style={{
-          marginTop: 12,
-          height: 8,
-          background: "#f2f2f2",
-          borderRadius: 999,
-        }}
-      >
+        <div className="progressBar">
+          <div className="progressFill" style={{ width: `${progressPct}%` }} />
+        </div>
+
         <div
-          style={{
-            height: "100%",
-            width: `${((idx + 1) / questions.length) * 100}%`,
-            background: "#111",
-            borderRadius: 999,
-            transition: "width .2s ease",
-          }}
-        />
-      </div>
-
-      <div
-        style={{
-          marginTop: 16,
-          display: "flex",
-          justifyContent: "space-between",
-          opacity: 0.75,
-        }}
-      >
-        <div>Progress: {progress}</div>
-        <div>
-          Answered: {Object.keys(answers).length}/{questions.length}
-        </div>
-      </div>
-
-      <div
-        style={{
-          marginTop: 18,
-          border: "1px solid #eee",
-          borderRadius: 12,
-          padding: 16,
-        }}
-      >
-        <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 8 }}>
-          Question {idx + 1}
-        </div>
-        <div style={{ fontSize: 18, fontWeight: 800 }}>{current.prompt}</div>
-
-        <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-          {current.options.map((opt, i) => {
-            const isSel = selected === i;
-            return (
-              <button
-                key={i}
-                onClick={() => select(i)}
-                style={{
-                  textAlign: "left",
-                  padding: 12,
-                  borderRadius: 10,
-                  border: isSel ? "2px solid #111" : "1px solid #eaeaea",
-                  background: isSel ? "#fafafa" : "white",
-                  cursor: timeUp ? "not-allowed" : "pointer",
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>
-                  {String.fromCharCode(65 + i)}.
-                </div>
-                <div style={{ marginTop: 4 }}>{opt}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div
-        style={{
-          marginTop: 14,
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-        }}
-      >
-        <button
-          onClick={prev}
-          disabled={idx === 0}
-          style={{ padding: "10px 14px" }}
+          className="spaceBetween muted"
+          style={{ marginTop: 12, fontSize: 13 }}
         >
-          ← Prev
-        </button>
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={finish} style={{ padding: "10px 14px" }}>
-            Finish
-          </button>
-          <button
-            onClick={next}
-            disabled={idx === questions.length - 1}
-            style={{ padding: "10px 14px" }}
-          >
-            Next →
-          </button>
+          <div>
+            Question <b>{idx + 1}</b> / {questions.length}
+          </div>
+          <div>
+            Answered <b>{Object.keys(answers).length}</b> / {questions.length}
+          </div>
         </div>
+
+        <section className="card" style={{ marginTop: 16 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            Prompt
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 900 }}>{current.prompt}</div>
+
+          <div className="list" style={{ marginTop: 14 }}>
+            {current.options.map((opt, i) => {
+              const isSel = selected === i;
+              return (
+                <button
+                  key={i}
+                  onClick={() => select(i)}
+                  className={`option ${isSel ? "optionSelected" : ""}`}
+                  disabled={timeUp}
+                >
+                  <div
+                    className="row"
+                    style={{ justifyContent: "space-between" }}
+                  >
+                    <span className="kbd">{String.fromCharCode(65 + i)}</span>
+                  </div>
+                  <div style={{ marginTop: 8 }}>{opt}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="spaceBetween" style={{ marginTop: 14 }}>
+          <button className="btn" onClick={prev} disabled={idx === 0}>
+            ← Prev
+          </button>
+
+          <div className="row">
+            <Link
+              className="btn btnGhost"
+              to="/"
+              style={{ display: "inline-flex", alignItems: "center" }}
+            >
+              Exit
+            </Link>
+            <button className="btn btnPrimary" onClick={finish}>
+              Finish
+            </button>
+            <button
+              className="btn"
+              onClick={next}
+              disabled={idx === questions.length - 1}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+
+        {timeUp && <div className="alert">Time is up. Submitting…</div>}
       </div>
-
-      {timeUp && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: 12,
-            borderRadius: 10,
-            background: "#fff3f3",
-            border: "1px solid #ffd5d5",
-          }}
-        >
-          Time is up. Submitting…
-        </div>
-      )}
     </div>
   );
 }

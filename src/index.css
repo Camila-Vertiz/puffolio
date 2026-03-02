@@ -151,3 +151,113 @@ button {
     padding: 32px;
   }
 }
+
+/* Buttons */
+.btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: #cbd5e1;
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: var(--text);
+  color: #fff;
+  border-color: var(--text);
+}
+
+.btnPrimary:hover {
+  opacity: .92;
+}
+
+.btnGhost {
+  background: transparent;
+}
+
+/* Small layout helpers */
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.spaceBetween {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Progress bar */
+.progressBar {
+  margin-top: 12px;
+  height: 8px;
+  background: #eef2f7;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--text);
+  border-radius: 999px;
+  transition: width .2s ease;
+}
+
+/* Question options */
+.option {
+  text-align: left;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+}
+
+.option:hover {
+  border-color: #cbd5e1;
+}
+
+.optionSelected {
+  border: 2px solid var(--text);
+  background: #f8fafc;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  background: #fff;
+}
+
+.alert {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #9a3412;
+}
