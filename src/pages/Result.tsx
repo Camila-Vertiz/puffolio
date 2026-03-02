@@ -52,9 +52,17 @@ export default function Result() {
 
   let correct = 0;
   const wrongIds: string[] = [];
+  let timedOut = 0;
 
   for (const q of questions) {
     const a = answers[q.id];
+
+    if (a == null) {
+      timedOut++;
+      wrongIds.push(q.id);
+      continue;
+    }
+
     if (a === q.correctIndex) correct++;
     else wrongIds.push(q.id);
   }
@@ -109,6 +117,9 @@ export default function Result() {
                 </div>
                 <div style={{ fontWeight: 900, fontSize: 18 }}>
                   {wrongIds.length}
+                </div>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Timed out: {timedOut}
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   Save for review
