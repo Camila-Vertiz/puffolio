@@ -34,7 +34,7 @@ export type Question = {
 export type Quiz = {
   id: string;
   name: string;
-  topicId: string;
+  topicIds: string[];
   mode: "study" | "exam";
   questionCount: number;
   perQuestionTimeSec: number; // default 45

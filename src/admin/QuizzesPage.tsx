@@ -1,25 +1,21 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "../firebase";
-import {
-  createQuiz,
-  deleteQuiz,
-  updateQuiz,
-} from "../data/firestoreRepo";
-import type { Topic } from "../data/firestoreRepo";
-import type { Quiz } from "../data/firestoreRepo";
+import type { Quiz, Topic } from "../data/firestoreRepo";
+import { createQuiz, deleteQuiz, updateQuiz } from "../data/firestoreRepo";
+
 type FormState = {
   name: string;
-  topicId: string;
+  topicIds: string[]; // multi-topic
   mode: "study" | "exam";
   questionCount: number;
-  perQuestionTimeSec: number;
+  perQuestionTimeSec: number; // default 45
   isActive: boolean;
 };
 
 const emptyForm: FormState = {
   name: "",
-  topicId: "",
+  topicIds: [],
   mode: "study",
   questionCount: 20,
   perQuestionTimeSec: 45,
@@ -32,36 +28,49 @@ export default function QuizzesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
 
+  // load topics
   useEffect(() => {
     const qy = query(collection(db, "topics"), orderBy("order", "asc"));
-    return onSnapshot(qy, (snap) =>
-      setTopics(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Topic[],
-      ),
-    );
+    const unsub = onSnapshot(qy, (snap) => {
+      const rows = snap.docs.map((d) => {
+        const data = d.data() as Omit<Topic, "id">;
+        return { id: d.id, ...data };
+      });
+      setTopics(rows);
+    });
+    return () => unsub();
   }, []);
 
+  // load quizzes
   useEffect(() => {
     const qy = query(collection(db, "quizzes"), orderBy("createdAt", "desc"));
-    return onSnapshot(qy, (snap) =>
-      setQuizzes(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Quiz[],
-      ),
-    );
+    const unsub = onSnapshot(qy, (snap) => {
+      const rows = snap.docs.map((d) => {
+        const data = d.data() as Omit<Quiz, "id">;
+        return { id: d.id, ...data };
+      });
+      setQuizzes(rows);
+    });
+    return () => unsub();
   }, []);
+
+  const topicName = (id: string) =>
+    topics.find((t) => t.id === id)?.name ?? "—";
+  const topicNames = (ids: string[]) => (ids ?? []).map(topicName).join(", ");
 
   const startCreate = () => {
     setEditingId(null);
-    setForm({ ...emptyForm, topicId: topics[0]?.id ?? "" });
+    const first = topics[0]?.id ? [topics[0].id] : [];
+    setForm({ ...emptyForm, topicIds: first });
   };
 
   const startEdit = (qz: Quiz) => {
     setEditingId(qz.id);
     setForm({
-      name: qz.name,
-      topicId: qz.topicId,
-      mode: qz.mode,
-      questionCount: qz.questionCount,
+      name: qz.name ?? "",
+      topicIds: qz.topicIds ?? [],
+      mode: qz.mode ?? "study",
+      questionCount: qz.questionCount ?? 20,
       perQuestionTimeSec: qz.perQuestionTimeSec ?? 45,
       isActive: qz.isActive ?? true,
     });
@@ -69,15 +78,24 @@ export default function QuizzesPage() {
 
   const save = async () => {
     if (!form.name.trim()) return alert("Quiz name required");
-    if (!form.topicId) return alert("Select a topic");
+    if (!form.topicIds.length) return alert("Select at least 1 topic");
     if (form.questionCount <= 0) return alert("questionCount must be > 0");
     if (form.perQuestionTimeSec <= 0)
       return alert("perQuestionTimeSec must be > 0");
 
+    const payload: Omit<Quiz, "id" | "createdAt" | "updatedAt"> = {
+      name: form.name.trim(),
+      topicIds: form.topicIds,
+      mode: form.mode,
+      questionCount: form.questionCount,
+      perQuestionTimeSec: form.perQuestionTimeSec,
+      isActive: form.isActive,
+    };
+
     if (editingId) {
-      await updateQuiz(editingId, { ...form });
+      await updateQuiz(editingId, payload);
     } else {
-      await createQuiz({ ...form });
+      await createQuiz(payload);
     }
 
     setEditingId(null);
@@ -90,17 +108,26 @@ export default function QuizzesPage() {
     await deleteQuiz(id);
   };
 
-  const topicName = (id: string) =>
-    topics.find((t) => t.id === id)?.name ?? "—";
+  const toggleTopic = (topicId: string, checked: boolean) => {
+    setForm((p) => ({
+      ...p,
+      topicIds: checked
+        ? Array.from(new Set([...p.topicIds, topicId]))
+        : p.topicIds.filter((x) => x !== topicId),
+    }));
+  };
+
+  const selectedCount = form.topicIds.length;
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 16 }}>
+      {/* LIST */}
       <section className="card">
         <div className="spaceBetween">
           <div>
             <div style={{ fontWeight: 900 }}>Quizzes</div>
             <div className="muted" style={{ fontSize: 13 }}>
-              Quiz configs (mode, count, total timer)
+              Quiz configs (multi-topic + per-question timer)
             </div>
           </div>
           <button className="btn" onClick={startCreate}>
@@ -114,8 +141,8 @@ export default function QuizzesPage() {
               <div className="itemLeft">
                 <div className="itemName">{qz.name}</div>
                 <div className="itemMeta">
-                  {topicName(qz.topicId)} • {qz.mode} • {qz.questionCount}Q •{" "}
-                  {qz.perQuestionTimeSec ?? 45}s/question •{" "}
+                  {topicNames(qz.topicIds ?? []) || "—"} • {qz.mode} •{" "}
+                  {qz.questionCount}Q • {qz.perQuestionTimeSec ?? 45}s/Q •{" "}
                   {qz.isActive ? "active" : "inactive"}
                 </div>
               </div>
@@ -138,6 +165,7 @@ export default function QuizzesPage() {
         </div>
       </section>
 
+      {/* FORM */}
       <section className="card">
         <div style={{ fontWeight: 900 }}>
           {editingId ? "Edit Quiz" : "Create Quiz"}
@@ -156,35 +184,51 @@ export default function QuizzesPage() {
                 borderRadius: 12,
                 border: "1px solid var(--border)",
               }}
-              placeholder="e.g. AWS Basics - 40Q"
+              placeholder="e.g. AWS Mixed Exam 40Q"
             />
           </label>
 
-          <label className="list">
-            <span className="muted" style={{ fontSize: 12 }}>
-              Topic
-            </span>
-            <select
-              value={form.topicId}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, topicId: e.target.value }))
-              }
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-              }}
+          {/* Topics multi select */}
+          <div className="list">
+            <div className="spaceBetween">
+              <span className="muted" style={{ fontSize: 12 }}>
+                Topics (select 1+)
+              </span>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Selected: {selectedCount}
+              </span>
+            </div>
+
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: "1fr 1fr", gap: 10 }}
             >
-              <option value="" disabled>
-                Select…
-              </option>
-              {topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              {topics.map((t) => {
+                const checked = form.topicIds.includes(t.id);
+                return (
+                  <label
+                    key={t.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: 10,
+                      borderRadius: 12,
+                      border: "1px solid var(--border)",
+                      background: checked ? "#fff" : "transparent",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleTopic(t.id, e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 700 }}>{t.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="row">
             <label className="list" style={{ flex: 1 }}>
@@ -194,7 +238,10 @@ export default function QuizzesPage() {
               <select
                 value={form.mode}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, mode: e.target.value as any }))
+                  setForm((p) => ({
+                    ...p,
+                    mode: e.target.value as "study" | "exam",
+                  }))
                 }
                 style={{
                   padding: 12,
