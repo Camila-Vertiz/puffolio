@@ -49,16 +49,23 @@ function normalizeDifficulty(v: unknown): Difficulty {
 export default function QuestionsPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
 
-  // paged rows
+  // current page rows (NOT growing)
   const [rows, setRows] = useState<Question[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [cursor, setCursor] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // filters
   const [filterTopicId, setFilterTopicId] = useState<string>("");
   const [search, setSearch] = useState("");
+
+  // page state
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+
+  // cursor stack: pageCursors[i] is the cursor to start AFTER for page i+1
+  // page 1 cursor is null (no startAfter)
+  const [pageCursors, setPageCursors] = useState<
+    Array<QueryDocumentSnapshot<DocumentData> | null>
+  >([null]);
 
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,8 +74,9 @@ export default function QuestionsPage() {
   // load topics once
   useEffect(() => {
     (async () => {
-      const qy = query(collection(db, "topics"), orderBy("order", "asc"));
-      const snap = await getDocs(qy);
+      const snap = await getDocs(
+        query(collection(db, "topics"), orderBy("order", "asc")),
+      );
 
       const list = snap.docs.map((d) => {
         const data = d.data() as Omit<Topic, "id">;
@@ -77,7 +85,6 @@ export default function QuestionsPage() {
 
       setTopics(list);
 
-      // default topic for form
       if (!form.topicId && list[0]?.id) {
         setForm((p) => ({ ...p, topicId: list[0].id }));
       }
@@ -88,86 +95,88 @@ export default function QuestionsPage() {
   const topicName = (id: string) =>
     topics.find((t) => t.id === id)?.name ?? "—";
 
-  // build base query (first page)
-  const buildFirstQuery = (topicId: string) => {
-    const base = collection(db, "questions");
-    return topicId
-      ? query(
-          base,
-          where("topicId", "==", topicId),
-          orderBy("createdAt", "desc"),
-          limit(PAGE_SIZE),
-        )
-      : query(base, orderBy("createdAt", "desc"), limit(PAGE_SIZE));
-  };
-
-  // build query for next page
-  const buildMoreQuery = (
-    topicId: string,
-    last: QueryDocumentSnapshot<DocumentData>,
-  ) => {
-    const base = collection(db, "questions");
-    return topicId
-      ? query(
-          base,
-          where("topicId", "==", topicId),
-          orderBy("createdAt", "desc"),
-          startAfter(last),
-          limit(PAGE_SIZE),
-        )
-      : query(
-          base,
-          orderBy("createdAt", "desc"),
-          startAfter(last),
-          limit(PAGE_SIZE),
-        );
-  };
-
-  async function loadFirstPage(topicId: string) {
+  async function fetchPage(opts: {
+    topicId: string;
+    pageIndex: number; // 1-based
+    cursorAfter: QueryDocumentSnapshot<DocumentData> | null;
+    updateCursors?: boolean;
+  }) {
     setLoading(true);
 
-    const snap = await getDocs(buildFirstQuery(topicId));
-    const items = snap.docs.map((d) => {
+    const base = collection(db, "questions");
+
+    const qy =
+      opts.topicId && opts.cursorAfter
+        ? query(
+            base,
+            where("topicId", "==", opts.topicId),
+            orderBy("createdAt", "desc"),
+            startAfter(opts.cursorAfter),
+            limit(PAGE_SIZE + 1), // +1 to detect next
+          )
+        : opts.topicId && !opts.cursorAfter
+          ? query(
+              base,
+              where("topicId", "==", opts.topicId),
+              orderBy("createdAt", "desc"),
+              limit(PAGE_SIZE + 1),
+            )
+          : !opts.topicId && opts.cursorAfter
+            ? query(
+                base,
+                orderBy("createdAt", "desc"),
+                startAfter(opts.cursorAfter),
+                limit(PAGE_SIZE + 1),
+              )
+            : query(base, orderBy("createdAt", "desc"), limit(PAGE_SIZE + 1));
+
+    const snap = await getDocs(qy);
+
+    // take first PAGE_SIZE as the page
+    const pageDocs = snap.docs.slice(0, PAGE_SIZE);
+
+    const items = pageDocs.map((d) => {
       const data = d.data() as Omit<Question, "id">;
       return { id: d.id, ...data };
     });
 
     setRows(items);
 
-    const last = snap.docs.at(-1) ?? null;
-    setCursor(last);
-    setHasMore(snap.docs.length === PAGE_SIZE);
+    // next page exists if we got extra doc
+    const nextExists = snap.docs.length > PAGE_SIZE;
+    setHasNext(nextExists);
+
+    // cursor for NEXT page should be the last doc of this page
+    const nextCursor = pageDocs.at(-1) ?? null;
+
+    if (opts.updateCursors) {
+      setPageCursors((prev) => {
+        const copy = prev.slice(0, opts.pageIndex); // keep up to current page index
+        // copy length should equal pageIndex
+        // store cursor for next page at index pageIndex (since pageIndex is 1-based)
+        copy[opts.pageIndex] = nextCursor;
+        return copy;
+      });
+    }
 
     setLoading(false);
   }
 
-  async function loadMore() {
-    if (!cursor || !hasMore) return;
-
-    setLoading(true);
-
-    const snap = await getDocs(buildMoreQuery(filterTopicId, cursor));
-    const items = snap.docs.map((d) => {
-      const data = d.data() as Omit<Question, "id">;
-      return { id: d.id, ...data };
-    });
-
-    setRows((prev) => [...prev, ...items]);
-
-    const last = snap.docs.at(-1) ?? null;
-    setCursor(last);
-    setHasMore(snap.docs.length === PAGE_SIZE);
-
-    setLoading(false);
-  }
-
-  // initial page
+  // initial load
   useEffect(() => {
-    loadFirstPage("");
+    // page 1 cursor = null
+    setPage(1);
+    setPageCursors([null]);
+    fetchPage({
+      topicId: "",
+      pageIndex: 1,
+      cursorAfter: null,
+      updateCursors: true,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // filter loaded rows by search (client-side)
+  // visible rows = search over current page ONLY
   const visible = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return rows;
@@ -185,7 +194,51 @@ export default function QuestionsPage() {
     });
   }, [rows, search]);
 
-  // CRUD
+  const onChangeTopic = async (topicId: string) => {
+    setFilterTopicId(topicId);
+    setSearch("");
+    setPage(1);
+    setPageCursors([null]);
+
+    await fetchPage({
+      topicId,
+      pageIndex: 1,
+      cursorAfter: null,
+      updateCursors: true,
+    });
+  };
+
+  const goPrev = async () => {
+    if (page <= 1) return;
+    const newPage = page - 1;
+
+    // cursorAfter for page N is pageCursors[N-1]
+    const cursorAfter = pageCursors[newPage - 1] ?? null;
+
+    setPage(newPage);
+    await fetchPage({
+      topicId: filterTopicId,
+      pageIndex: newPage,
+      cursorAfter,
+      updateCursors: false,
+    });
+  };
+
+  const goNext = async () => {
+    if (!hasNext) return;
+
+    const cursorAfter = pageCursors[page] ?? null; // cursor saved for next page
+    const newPage = page + 1;
+
+    setPage(newPage);
+    await fetchPage({
+      topicId: filterTopicId,
+      pageIndex: newPage,
+      cursorAfter,
+      updateCursors: true,
+    });
+  };
+
   const startCreate = () => {
     setEditingId(null);
     setForm({
@@ -213,9 +266,8 @@ export default function QuestionsPage() {
 
     const cleanedOptions = form.options.map((s) => s.trim());
     if (cleanedOptions.some((x) => !x)) return alert("All 4 options required");
-    if (form.correctIndex < 0 || form.correctIndex > 3) {
+    if (form.correctIndex < 0 || form.correctIndex > 3)
       return alert("Correct option must be 0..3");
-    }
 
     const payload = {
       topicId: form.topicId,
@@ -228,24 +280,35 @@ export default function QuestionsPage() {
       isActive: form.isActive,
     };
 
-    if (editingId) {
-      await updateQuestion(editingId, payload);
-    } else {
-      await createQuestion(payload);
-    }
+    if (editingId) await updateQuestion(editingId, payload);
+    else await createQuestion(payload);
 
     setEditingId(null);
     setForm(emptyForm);
 
-    // refresh current view (first page)
-    await loadFirstPage(filterTopicId);
+    // reload current page (page cursors still valid enough for admin use)
+    const cursorAfter = pageCursors[page - 1] ?? null;
+    await fetchPage({
+      topicId: filterTopicId,
+      pageIndex: page,
+      cursorAfter,
+      updateCursors: true,
+    });
   };
 
   const remove = async (id: string) => {
     const ok = confirm("Delete question? (Permanent)");
     if (!ok) return;
     await deleteQuestion(id);
-    await loadFirstPage(filterTopicId);
+
+    // reload current page
+    const cursorAfter = pageCursors[page - 1] ?? null;
+    await fetchPage({
+      topicId: filterTopicId,
+      pageIndex: page,
+      cursorAfter,
+      updateCursors: true,
+    });
   };
 
   return (
@@ -256,7 +319,7 @@ export default function QuestionsPage() {
           <div>
             <div style={{ fontWeight: 900 }}>Questions</div>
             <div className="muted" style={{ fontSize: 13 }}>
-              Paged table + topic filter + search
+              Table + search + real pages
             </div>
           </div>
 
@@ -270,12 +333,7 @@ export default function QuestionsPage() {
         <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
           <select
             value={filterTopicId}
-            onChange={(e) => {
-              const v = e.target.value;
-              setFilterTopicId(v);
-              setSearch("");
-              loadFirstPage(v);
-            }}
+            onChange={(e) => onChangeTopic(e.target.value)}
             style={{
               padding: 10,
               borderRadius: 12,
@@ -294,7 +352,7 @@ export default function QuestionsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search prompt / options / explanation…"
+            placeholder="Search current page…"
             style={{
               flex: 1,
               minWidth: 220,
@@ -304,26 +362,29 @@ export default function QuestionsPage() {
             }}
           />
 
-          <button
-            className="btn"
-            onClick={() => loadFirstPage(filterTopicId)}
-            disabled={loading}
-          >
-            Refresh
-          </button>
-
-          <button
-            className="btn"
-            onClick={loadMore}
-            disabled={loading || !hasMore}
-          >
-            {hasMore ? "Load more" : "No more"}
-          </button>
+          <div className="row">
+            <button
+              className="btn"
+              onClick={goPrev}
+              disabled={loading || page <= 1}
+            >
+              Prev
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Page <b style={{ color: "var(--text)" }}>{page}</b>
+            </span>
+            <button
+              className="btn"
+              onClick={goNext}
+              disabled={loading || !hasNext}
+            >
+              Next
+            </button>
+          </div>
         </div>
 
         <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-          Showing <b>{visible.length}</b> of <b>{rows.length}</b> loaded{" "}
-          {hasMore ? `(more available)` : `(all loaded)`}.
+          Showing <b>{visible.length}</b> rows on this page.
         </div>
 
         <div style={{ overflowX: "auto", marginTop: 12 }}>

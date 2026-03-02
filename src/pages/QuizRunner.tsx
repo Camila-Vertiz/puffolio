@@ -1,37 +1,40 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  doc,
+  getDoc,
+  collection,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  where,
+  type DocumentData,
+} from "firebase/firestore";
+import { db } from "../firebase";
 
-type Question = {
+// Local types (keep them independent)
+export type Quiz = {
   id: string;
+  name: string;
+  topicIds: string[];
+  mode: "study" | "exam";
+  questionCount: number;
+  perQuestionTimeSec?: number; // default 45
+  isActive?: boolean;
+};
+
+export type Question = {
+  id: string;
+  topicId: string;
   prompt: string;
   options: string[];
   correctIndex: number;
   explanation: string;
+  difficulty?: "easy" | "medium" | "hard";
+  isActive?: boolean;
+  rand?: number;
 };
-
-const DUMMY_QUESTIONS: Question[] = [
-  {
-    id: "qq1",
-    prompt: "What does IAM stand for in AWS?",
-    options: [
-      "Identity and Access Management",
-      "Internal Access Module",
-      "Instance Access Manager",
-      "Identity Allocation Method",
-    ],
-    correctIndex: 0,
-    explanation:
-      "IAM = Identity and Access Management. It controls users, roles, and permissions.",
-  },
-  {
-    id: "qq2",
-    prompt: "Which HTTP status code indicates a server error?",
-    options: ["200", "301", "403", "500"],
-    correctIndex: 3,
-    explanation:
-      "5xx status codes represent server errors. 500 = Internal Server Error.",
-  },
-];
 
 function fmt(sec: number) {
   const s = Math.max(0, sec);
@@ -40,66 +43,188 @@ function fmt(sec: number) {
   return `${mm.toString().padStart(2, "0")}:${ss.toString().padStart(2, "0")}`;
 }
 
+function shuffle<T>(arr: T[]) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function chunk<T>(arr: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export default function QuizRunner() {
   const { quizId } = useParams();
   const nav = useNavigate();
 
-  // ✅ default 45s per question (later: load from quiz doc)
-  const perQuestionTimeSec = 45;
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  const questions = useMemo(() => DUMMY_QUESTIONS, []);
   const [idx, setIdx] = useState(0);
-
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [showExplanation, setShowExplanation] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(perQuestionTimeSec);
+  const [timeLeft, setTimeLeft] = useState(45);
 
-  const startedAtRef = useRef<number>(Date.now());
+  const tickRef = useRef<number | null>(null);
+  const startedAtRef = useRef<number | null>(null);
+
+  const perQ = quiz?.perQuestionTimeSec ?? 45;
+
+  // Load quiz + questions from Firestore
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      try {
+        setLoading(true);
+        setErr(null);
+
+        if (!quizId) throw new Error("Missing quizId");
+
+        const quizSnap = await getDoc(doc(db, "quizzes", quizId));
+        if (!quizSnap.exists()) throw new Error("Quiz not found");
+
+        const quizData = quizSnap.data() as DocumentData;
+
+        const qz: Quiz = {
+          id: quizSnap.id,
+          name: String(quizData.name ?? ""),
+          topicIds: Array.isArray(quizData.topicIds) ? quizData.topicIds : [],
+          mode: (quizData.mode as "study" | "exam") ?? "study",
+          questionCount: Number(quizData.questionCount ?? 20),
+          perQuestionTimeSec: Number(quizData.perQuestionTimeSec ?? 45),
+          isActive: Boolean(quizData.isActive ?? true),
+        };
+
+        if (!qz.topicIds.length)
+          throw new Error("Quiz has no topics configured");
+        if (!qz.isActive) throw new Error("Quiz is disabled");
+
+        // Firestore `in` supports up to 10 values. If more, chunk and merge.
+        const topicChunks = chunk(qz.topicIds, 10);
+
+        const want = Math.max(1, qz.questionCount);
+        const perChunkLimit = Math.max(
+          want,
+          Math.ceil(want / topicChunks.length),
+        );
+
+        const snaps = await Promise.all(
+          topicChunks.map((ids) => {
+            const qy = query(
+              collection(db, "questions"),
+              where("isActive", "==", true),
+              where("topicId", "in", ids),
+              orderBy("rand", "asc"),
+              limit(perChunkLimit),
+            );
+            return getDocs(qy);
+          }),
+        );
+
+        const merged: Question[] = [];
+        for (const s of snaps) {
+          for (const d of s.docs) {
+            const data = d.data() as Omit<Question, "id">;
+            merged.push({ id: d.id, ...data });
+          }
+        }
+
+        const finalQs = shuffle(merged).slice(0, want);
+        if (!finalQs.length)
+          throw new Error("No active questions found for this quiz");
+
+        if (cancelled) return;
+
+        setQuiz(qz);
+        setQuestions(finalQs);
+
+        // reset run state
+        setIdx(0);
+        setAnswers({});
+        setShowExplanation(false);
+        setTimeLeft(qz.perQuestionTimeSec ?? 45);
+
+        // ✅ Date.now() only here (not during render)
+        startedAtRef.current = Date.now();
+
+        setLoading(false);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        if (!cancelled) {
+          setErr(msg);
+          setLoading(false);
+        }
+      }
+    }
+
+    run();
+
+    return () => {
+      cancelled = true;
+      if (tickRef.current) window.clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [quizId]);
+
   const current = questions[idx];
-  const selected = answers[current.id];
+  const selected = current ? answers[current.id] : undefined;
 
-  // Reset per-question timer when question changes
+  // Timer tick (no “reset setState” inside effect body)
   useEffect(() => {
-    setTimeLeft(perQuestionTimeSec);
-    setShowExplanation(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, perQuestionTimeSec]);
+    if (!quiz) return;
+    if (!questions.length) return;
 
-  // Timer tick (stops when explanation is shown)
-  useEffect(() => {
+    if (tickRef.current) window.clearInterval(tickRef.current);
+    tickRef.current = null;
+
     if (showExplanation) return;
 
-    const t = window.setInterval(() => {
+    tickRef.current = window.setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) return 0;
-        return prev - 1;
+        const next = Math.max(0, prev - 1);
+        if (next === 0) {
+          setShowExplanation(true);
+          if (tickRef.current) window.clearInterval(tickRef.current);
+          tickRef.current = null;
+        }
+        return next;
       });
     }, 1000);
 
-    return () => window.clearInterval(t);
-  }, [showExplanation]);
+    return () => {
+      if (tickRef.current) window.clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [quiz, questions.length, idx, showExplanation]);
 
-  // Time up => reveal explanation (unanswered counts as wrong)
-  useEffect(() => {
-    if (showExplanation) return;
-    if (timeLeft === 0) {
-      setShowExplanation(true);
-    }
-  }, [timeLeft, showExplanation]);
-
-  const select = (optIndex: number) => {
-    if (showExplanation) return;
-    setAnswers((prev) => ({ ...prev, [current.id]: optIndex }));
-    setShowExplanation(true);
+  const goTo = (nextIdx: number) => {
+    setIdx(nextIdx);
+    setShowExplanation(false);
+    setTimeLeft(perQ);
   };
 
-  const next = () => {
-    if (idx < questions.length - 1) setIdx((v) => v + 1);
-    else finish();
+  const select = (optIndex: number) => {
+    if (!current) return;
+    if (showExplanation) return;
+
+    setAnswers((prev) => ({ ...prev, [current.id]: optIndex }));
+    setShowExplanation(true);
+
+    if (tickRef.current) window.clearInterval(tickRef.current);
+    tickRef.current = null;
   };
 
   const finish = () => {
-    const usedSec = Math.ceil((Date.now() - startedAtRef.current) / 1000);
+    const startedAt = startedAtRef.current;
+    const usedSec = startedAt ? Math.ceil((Date.now() - startedAt) / 1000) : 0;
 
     nav(`/result/${quizId ?? "draft"}`, {
       state: {
@@ -107,13 +232,80 @@ export default function QuizRunner() {
         questions,
         answers,
         usedSec,
-        perQuestionTimeSec,
+        perQuestionTimeSec: perQ,
       },
     });
   };
 
-  const progressPct = ((idx + 1) / questions.length) * 100;
-  const isCorrect = selected === current.correctIndex;
+  const next = () => {
+    if (idx < questions.length - 1) goTo(idx + 1);
+    else finish();
+  };
+
+  const progressPct = useMemo(() => {
+    if (!questions.length) return 0;
+    return ((idx + 1) / questions.length) * 100;
+  }, [idx, questions.length]);
+
+  const isCorrect =
+    current && selected != null ? selected === current.correctIndex : false;
+
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="container">
+          <section className="card">
+            <div style={{ fontWeight: 900, fontSize: 18 }}>Loading quiz…</div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              Fetching config + questions from Firestore.
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="page">
+        <div className="container">
+          <section className="card">
+            <div style={{ fontWeight: 900, fontSize: 18 }}>
+              Cannot start quiz
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              {err}
+            </div>
+            <div className="row" style={{ marginTop: 14 }}>
+              <Link className="btn" to="/">
+                Go Home
+              </Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (!quiz || !current) {
+    return (
+      <div className="page">
+        <div className="container">
+          <section className="card">
+            <div style={{ fontWeight: 900, fontSize: 18 }}>No questions</div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              This quiz doesn’t have questions available.
+            </div>
+            <div className="row" style={{ marginTop: 14 }}>
+              <Link className="btn" to="/">
+                Go Home
+              </Link>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -121,14 +313,16 @@ export default function QuizRunner() {
         <div className="spaceBetween">
           <div>
             <div className="muted" style={{ fontSize: 12 }}>
-              Quiz
+              {quiz.name || "Quiz"}
             </div>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>#{quizId}</div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>
+              {idx + 1} / {questions.length}
+            </div>
           </div>
 
           <div style={{ textAlign: "right" }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              Time (this question)
+              Time left
             </div>
             <div style={{ fontWeight: 900, fontSize: 18 }}>{fmt(timeLeft)}</div>
           </div>
@@ -143,11 +337,9 @@ export default function QuizRunner() {
           style={{ marginTop: 12, fontSize: 13 }}
         >
           <div>
-            Question <b>{idx + 1}</b> / {questions.length}
-          </div>
-          <div>
             Answered <b>{Object.keys(answers).length}</b> / {questions.length}
           </div>
+          <div>{perQ}s per question</div>
         </div>
 
         <section className="card" style={{ marginTop: 16 }}>
@@ -204,7 +396,7 @@ export default function QuizRunner() {
             >
               <div style={{ fontWeight: 800 }}>
                 {selected == null
-                  ? "Time's up"
+                  ? "Time’s up"
                   : isCorrect
                     ? "Correct"
                     : "Incorrect"}
@@ -222,10 +414,16 @@ export default function QuizRunner() {
           )}
         </section>
 
-        <div style={{ marginTop: 16 }}>
+        <div
+          className="row"
+          style={{ marginTop: 16, justifyContent: "space-between" }}
+        >
           <Link className="btn btnGhost" to="/">
             Exit
           </Link>
+          <button className="btn" onClick={finish}>
+            Finish now
+          </button>
         </div>
       </div>
     </div>

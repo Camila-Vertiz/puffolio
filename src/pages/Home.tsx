@@ -1,120 +1,135 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-
-type Topic = { id: string; name: string; count: number };
-type Quiz = {
-  id: string;
-  name: string;
-  topicId: string;
-  questionCount: number;
-  totalTimeSec: number;
-  mode: "exam" | "study";
-};
-
-const TOPICS: Topic[] = [
-  { id: "t1", name: "AWS", count: 120 },
-  { id: "t2", name: "Java", count: 80 },
-  { id: "t3", name: "Networking", count: 150 },
-];
-
-const QUIZZES: Quiz[] = [
-  {
-    id: "q1",
-    name: "AWS Basics - 40Q",
-    topicId: "t1",
-    questionCount: 40,
-    totalTimeSec: 3600,
-    mode: "exam",
-  },
-  {
-    id: "q2",
-    name: "Java OOP - 25Q",
-    topicId: "t2",
-    questionCount: 25,
-    totalTimeSec: 1800,
-    mode: "study",
-  },
-  {
-    id: "q3",
-    name: "Networking Mixed - 50Q",
-    topicId: "t3",
-    questionCount: 50,
-    totalTimeSec: 3600,
-    mode: "exam",
-  },
-];
-
-function formatTime(sec: number) {
-  const m = Math.floor(sec / 60);
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  if (h > 0) return `${h}h ${mm}m`;
-  return `${m}m`;
-}
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { db } from "../firebase";
+import type { Quiz, Topic } from "../data/models";
 
 export default function Home() {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const tq = query(collection(db, "topics"), orderBy("order", "asc"));
+    const unsubTopics = onSnapshot(tq, (snap) => {
+      const rows = snap.docs.map((d) => {
+        const data = d.data() as Omit<Topic, "id">;
+        return { id: d.id, ...data };
+      });
+      setTopics(rows);
+    });
+
+    // If you are not 100% sure every quiz has createdAt, use orderBy("name") instead.
+    const qq = query(collection(db, "quizzes"), orderBy("createdAt", "desc"));
+    const unsubQuizzes = onSnapshot(
+      qq,
+      (snap) => {
+        const rows = snap.docs.map((d) => {
+          const data = d.data() as Omit<Quiz, "id">;
+          return { id: d.id, ...data };
+        });
+        setQuizzes(rows);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Quizzes snapshot error:", err);
+        setLoading(false);
+      },
+    );
+
+    return () => {
+      unsubTopics();
+      unsubQuizzes();
+    };
+  }, []);
+
+  const activeTopics = useMemo(
+    () => topics.filter((t) => t.isActive !== false),
+    [topics],
+  );
+
+  const activeQuizzes = useMemo(
+    () => quizzes.filter((q) => q.isActive !== false),
+    [quizzes],
+  );
+
+  const topicName = (id: string) =>
+    topics.find((t) => t.id === id)?.name ?? "—";
+
   return (
     <div className="page">
       <div className="container">
-        <h1 className="h1">Puffolio</h1>
-        <p className="subtitle">
-          Banqueo-style learning • Total timer • Study & Exam mode
-        </p>
-
-        <div className="grid">
-          <section className="card">
-            <h3 className="cardTitle">Topics</h3>
-            <div className="list">
-              {TOPICS.map((t) => (
-                <div key={t.id} className="item">
-                  <div className="itemLeft">
-                    <div className="itemName">{t.name}</div>
-                    <div className="itemMeta">{t.count} questions</div>
-                  </div>
-                  <Link to={`/topic/${t.id}`}>View →</Link>
-                </div>
-              ))}
+        <div className="spaceBetween">
+          <div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Quizzes
             </div>
+            <div style={{ fontWeight: 900, fontSize: 26 }}>Start</div>
+          </div>
+
+          <div className="row">
+            <Link className="btn" to="/review">
+              Weak Review
+            </Link>
+            <Link className="btn" to="/admin">
+              Admin
+            </Link>
+          </div>
+        </div>
+
+        {loading ? (
+          <section className="card" style={{ marginTop: 16 }}>
+            <div className="muted">Loading…</div>
           </section>
-
-          <section className="card">
-            <h3 className="cardTitle">Quizzes</h3>
-            <div className="list">
-              {QUIZZES.map((q) => (
-                <div
-                  key={q.id}
-                  className="item"
-                  style={{ alignItems: "flex-start" }}
-                >
-                  <div className="itemLeft" style={{ gap: 6 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: 10,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                      }}
-                    >
+        ) : activeQuizzes.length === 0 ? (
+          <section className="card" style={{ marginTop: 16 }}>
+            <div className="muted">No active quizzes. Create one in Admin.</div>
+          </section>
+        ) : (
+          <div
+            className="grid"
+            style={{ marginTop: 16, gridTemplateColumns: "1fr" }}
+          >
+            <section className="card">
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>
+                Available quizzes
+              </div>
+              <div className="list">
+                {activeQuizzes.map((q) => (
+                  <div key={q.id} className="item">
+                    <div className="itemLeft">
                       <div className="itemName">{q.name}</div>
-                      <span className="badge">{q.mode.toUpperCase()}</span>
+                      <div className="itemMeta">
+                        {(q.topicIds ?? []).map(topicName).join(", ")} •{" "}
+                        {q.mode} • {q.questionCount}Q •{" "}
+                        {q.perQuestionTimeSec ?? 45}s/Q
+                      </div>
                     </div>
-                    <div className="itemMeta">
-                      {q.questionCount} questions • {formatTime(q.totalTimeSec)}{" "}
-                      total
-                    </div>
-
-                    <div className="actions">
-                      <Link to={`/quiz/${q.id}`}>Start →</Link>
-                      <Link to="/review" style={{ color: "var(--muted)" }}>
-                        Review weak →
+                    <div className="row">
+                      <Link className="btn btnPrimary" to={`/quiz/${q.id}`}>
+                        Start
                       </Link>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
+                ))}
+              </div>
+            </section>
 
+            <section className="card">
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>Topics</div>
+              <div className="list">
+                {activeTopics.map((t) => (
+                  <div key={t.id} className="item">
+                    <div className="itemLeft">
+                      <div className="itemName">{t.name}</div>
+                      <div className="itemMeta">order: {t.order ?? "-"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );

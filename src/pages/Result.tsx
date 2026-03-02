@@ -1,4 +1,7 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
 
 type Question = {
   id: string;
@@ -8,12 +11,12 @@ type Question = {
   explanation: string;
 };
 
-type ResultState = {
+type RunDoc = {
+  quizId?: string | null;
   questions: Question[];
   answers: Record<string, number>;
   usedSec: number;
-  perQuestionTimeSec?: number; // default 45
-  quizId?: string;
+  perQuestionTimeSec?: number;
 };
 
 function mins(sec: number) {
@@ -21,18 +24,74 @@ function mins(sec: number) {
 }
 
 export default function Result() {
-  const location = useLocation();
-  const state = location.state as ResultState | null;
+  const { runId } = useParams<{ runId: string }>();
 
-  if (!state?.questions || !state?.answers) {
+  const [run, setRun] = useState<RunDoc | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      const u = auth.currentUser;
+      if (!u || !runId) {
+        setRun(null);
+        setLoading(false);
+        return;
+      }
+
+      const ref = doc(db, "users", u.uid, "runs", runId);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        setRun(null);
+        setLoading(false);
+        return;
+      }
+
+      setRun(snap.data() as RunDoc);
+      setLoading(false);
+    };
+
+    load();
+  }, [runId]);
+
+  const computed = useMemo(() => {
+    if (!run) return null;
+
+    const { questions, answers } = run;
+    let correct = 0;
+    const wrongIds: string[] = [];
+
+    for (const q of questions) {
+      const a = answers[q.id];
+      if (a === q.correctIndex) correct++;
+      else wrongIds.push(q.id);
+    }
+
+    const scorePct = Math.round((correct / questions.length) * 100);
+    return { correct, wrongIds, scorePct };
+  }, [run]);
+
+  if (loading) {
+    return (
+      <div className="page">
+        <div className="container">
+          <section className="card">
+            <div className="muted">Loading result…</div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (!run || !computed) {
     return (
       <div className="page">
         <div className="container">
           <section className="card">
             <div style={{ fontWeight: 900, fontSize: 18 }}>No result data</div>
             <p className="muted" style={{ marginBottom: 0 }}>
-              Start a quiz first. (If you refreshed this page, router state is
-              lost.)
+              Run not found (maybe deleted) or you opened this link while logged
+              out.
             </p>
             <div className="row" style={{ marginTop: 12 }}>
               <Link className="btn" to="/">
@@ -45,29 +104,11 @@ export default function Result() {
     );
   }
 
-  const { questions, answers, usedSec, perQuestionTimeSec } = state;
+  const { questions, answers, usedSec, perQuestionTimeSec } = run;
+  const { correct, wrongIds, scorePct } = computed;
 
-  const perQ = perQuestionTimeSec ?? 45;
-  const expectedTotalSec = questions.length * perQ;
-
-  let correct = 0;
-  const wrongIds: string[] = [];
-  let timedOut = 0;
-
-  for (const q of questions) {
-    const a = answers[q.id];
-
-    if (a == null) {
-      timedOut++;
-      wrongIds.push(q.id);
-      continue;
-    }
-
-    if (a === q.correctIndex) correct++;
-    else wrongIds.push(q.id);
-  }
-
-  const scorePct = Math.round((correct / questions.length) * 100);
+  // totalTimeSec: por pregunta (configurable) * cantidad
+  const totalTimeSec = (perQuestionTimeSec ?? 45) * questions.length;
 
   return (
     <div className="page">
@@ -107,19 +148,15 @@ export default function Result() {
                   {mins(usedSec)} min
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  Expected ~{mins(expectedTotalSec)} min ({perQ}s/question)
+                  of {mins(totalTimeSec)} min
                 </div>
               </div>
-
               <div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   Wrong questions
                 </div>
                 <div style={{ fontWeight: 900, fontSize: 18 }}>
                   {wrongIds.length}
-                </div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  Timed out: {timedOut}
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   Save for review
@@ -161,7 +198,6 @@ export default function Result() {
                       : isChosen && !isCorrect
                         ? "#fef2f2"
                         : "#fff";
-
                     const border = isCorrect
                       ? "#bbf7d0"
                       : isChosen && !isCorrect

@@ -6,8 +6,8 @@ import {
   orderBy,
   query,
   startAfter,
-  type QueryDocumentSnapshot,
   type DocumentData,
+  type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { createTopic, deleteTopic, updateTopic } from "../data/firestoreRepo";
@@ -20,78 +20,116 @@ type FormState = {
 };
 
 const emptyForm: FormState = { name: "", order: 1, isActive: true };
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 2;
 
 export default function TopicsPage() {
+  // current page rows only (NOT growing)
   const [rows, setRows] = useState<Topic[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [cursor, setCursor] =
-    useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  // filters
   const [search, setSearch] = useState("");
 
+  // page state
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+
+  // cursor stack: pageCursors[i] is the cursor to start AFTER for page i+1
+  // page 1 cursor is null (no startAfter)
+  const [pageCursors, setPageCursors] = useState<
+    Array<QueryDocumentSnapshot<DocumentData> | null>
+  >([null]);
+
+  // form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
 
   const visible = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return rows;
-    return rows.filter((t) => t.name.toLowerCase().includes(s));
+    return rows.filter((t) => (t.name ?? "").toLowerCase().includes(s));
   }, [rows, search]);
 
-  async function loadFirstPage() {
+  const buildQuery = (
+    cursorAfter: QueryDocumentSnapshot<DocumentData> | null,
+  ) => {
+    const base = collection(db, "topics");
+    return cursorAfter
+      ? query(
+          base,
+          orderBy("order", "asc"),
+          startAfter(cursorAfter),
+          limit(PAGE_SIZE + 1), // +1 to detect next page
+        )
+      : query(base, orderBy("order", "asc"), limit(PAGE_SIZE + 1));
+  };
+
+  async function fetchPage(opts: {
+    pageIndex: number; // 1-based
+    cursorAfter: QueryDocumentSnapshot<DocumentData> | null;
+    updateCursors?: boolean;
+  }) {
     setLoading(true);
 
-    const qy = query(
-      collection(db, "topics"),
-      orderBy("order", "asc"),
-      limit(PAGE_SIZE),
-    );
+    const snap = await getDocs(buildQuery(opts.cursorAfter));
 
-    const snap = await getDocs(qy);
-
-    const items = snap.docs.map((d) => {
+    const pageDocs = snap.docs.slice(0, PAGE_SIZE);
+    const items = pageDocs.map((d) => {
       const data = d.data() as Omit<Topic, "id">;
       return { id: d.id, ...data };
     });
 
     setRows(items);
 
-    const last = snap.docs.at(-1) ?? null;
-    setCursor(last);
-    setHasMore(snap.docs.length === PAGE_SIZE);
+    const nextExists = snap.docs.length > PAGE_SIZE;
+    setHasNext(nextExists);
+
+    const nextCursor = pageDocs.at(-1) ?? null;
+
+    if (opts.updateCursors) {
+      setPageCursors((prev) => {
+        const copy = prev.slice(0, opts.pageIndex); // keep up to current page
+        copy[opts.pageIndex] = nextCursor; // store cursor for NEXT page
+        return copy;
+      });
+    }
 
     setLoading(false);
   }
 
-  async function loadMore() {
-    if (!cursor || !hasMore) return;
+  async function loadFirstPage() {
+    setPage(1);
+    setPageCursors([null]);
+    setSearch("");
+    await fetchPage({ pageIndex: 1, cursorAfter: null, updateCursors: true });
+  }
 
-    setLoading(true);
+  const goPrev = async () => {
+    if (page <= 1) return;
+    const newPage = page - 1;
+    const cursorAfter = pageCursors[newPage - 1] ?? null;
 
-    const qy = query(
-      collection(db, "topics"),
-      orderBy("order", "asc"),
-      startAfter(cursor),
-      limit(PAGE_SIZE),
-    );
-
-    const snap = await getDocs(qy);
-
-    const items = snap.docs.map((d) => {
-      const data = d.data() as Omit<Topic, "id">;
-      return { id: d.id, ...data };
+    setPage(newPage);
+    await fetchPage({
+      pageIndex: newPage,
+      cursorAfter,
+      updateCursors: false,
     });
+  };
 
-    setRows((prev) => [...prev, ...items]);
+  const goNext = async () => {
+    if (!hasNext) return;
 
-    const last = snap.docs.at(-1) ?? null;
-    setCursor(last);
-    setHasMore(snap.docs.length === PAGE_SIZE);
+    const cursorAfter = pageCursors[page] ?? null;
+    const newPage = page + 1;
 
-    setLoading(false);
-  }
+    setPage(newPage);
+    await fetchPage({
+      pageIndex: newPage,
+      cursorAfter,
+      updateCursors: true,
+    });
+  };
 
   useEffect(() => {
     loadFirstPage();
@@ -100,16 +138,15 @@ export default function TopicsPage() {
 
   const startCreate = () => {
     setEditingId(null);
-    setForm({
-      ...emptyForm,
-      order: Math.max(1, (rows.at(-1)?.order ?? 0) + 1),
-    });
+    // keep it simple: default order = current max + 1 within current page
+    const nextOrder = Math.max(1, (rows.at(-1)?.order ?? 0) + 1);
+    setForm({ ...emptyForm, order: nextOrder });
   };
 
   const startEdit = (t: Topic) => {
     setEditingId(t.id);
     setForm({
-      name: t.name,
+      name: t.name ?? "",
       order: t.order ?? 1,
       isActive: t.isActive ?? true,
     });
@@ -118,24 +155,34 @@ export default function TopicsPage() {
   const save = async () => {
     if (!form.name.trim()) return alert("Topic name required");
 
-    if (editingId) {
-      await updateTopic(editingId, { ...form, name: form.name.trim() });
-    } else {
-      await createTopic({ ...form, name: form.name.trim() });
-    }
+    const payload = { ...form, name: form.name.trim() };
+
+    if (editingId) await updateTopic(editingId, payload);
+    else await createTopic(payload);
 
     setEditingId(null);
     setForm(emptyForm);
 
-    // Refresh list so table stays consistent
-    await loadFirstPage();
+    // reload current page
+    const cursorAfter = pageCursors[page - 1] ?? null;
+    await fetchPage({
+      pageIndex: page,
+      cursorAfter,
+      updateCursors: true,
+    });
   };
 
   const remove = async (id: string) => {
     const ok = confirm("Delete topic? (Permanent)");
     if (!ok) return;
     await deleteTopic(id);
-    await loadFirstPage();
+
+    const cursorAfter = pageCursors[page - 1] ?? null;
+    await fetchPage({
+      pageIndex: page,
+      cursorAfter,
+      updateCursors: true,
+    });
   };
 
   const formTitle = editingId ? "Edit Topic" : "Create Topic";
@@ -148,7 +195,7 @@ export default function TopicsPage() {
           <div>
             <div style={{ fontWeight: 900 }}>Topics</div>
             <div className="muted" style={{ fontSize: 13 }}>
-              Paged table + search filter
+              Table + search + real pages
             </div>
           </div>
 
@@ -159,12 +206,11 @@ export default function TopicsPage() {
           </div>
         </div>
 
-        {/* Search + paging controls */}
         <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search topic name…"
+            placeholder="Search current page…"
             style={{
               flex: 1,
               minWidth: 220,
@@ -178,22 +224,31 @@ export default function TopicsPage() {
             Refresh
           </button>
 
-          <button
-            className="btn"
-            onClick={loadMore}
-            disabled={loading || !hasMore}
-            title={!hasMore ? "No more rows" : "Load next page"}
-          >
-            {hasMore ? "Load more" : "No more"}
-          </button>
+          <div className="row">
+            <button
+              className="btn"
+              onClick={goPrev}
+              disabled={loading || page <= 1}
+            >
+              Prev
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              Page <b style={{ color: "var(--text)" }}>{page}</b>
+            </span>
+            <button
+              className="btn"
+              onClick={goNext}
+              disabled={loading || !hasNext}
+            >
+              Next
+            </button>
+          </div>
         </div>
 
         <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-          Showing <b>{visible.length}</b> of <b>{rows.length}</b> loaded{" "}
-          {hasMore ? `(more available)` : `(all loaded)`}.
+          Showing <b>{visible.length}</b> rows on this page.
         </div>
 
-        {/* Table wrapper with horizontal scroll */}
         <div style={{ overflowX: "auto", marginTop: 12 }}>
           <table
             style={{
@@ -216,9 +271,6 @@ export default function TopicsPage() {
                 <tr key={t.id}>
                   <td style={tdLeft}>
                     <div style={{ fontWeight: 800 }}>{t.name}</div>
-                    {/* <div className="muted" style={{ fontSize: 12 }}>
-                      id: {t.id}
-                    </div> */}
                   </td>
 
                   <td style={tdLeft}>{t.order ?? "-"}</td>
