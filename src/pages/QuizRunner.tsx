@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 type Question = {
   id: string;
@@ -33,7 +33,7 @@ const DUMMY_QUESTIONS: Question[] = [
   },
 ];
 
-function formatRemaining(sec: number) {
+function fmt(sec: number) {
   const s = Math.max(0, sec);
   const mm = Math.floor(s / 60);
   const ss = s % 60;
@@ -44,62 +44,70 @@ export default function QuizRunner() {
   const { quizId } = useParams();
   const nav = useNavigate();
 
-  const totalTimeSec = 5 * 60;
+  // ✅ default 45s per question (later: load from quiz doc)
+  const perQuestionTimeSec = 45;
 
   const questions = useMemo(() => DUMMY_QUESTIONS, []);
   const [idx, setIdx] = useState(0);
+
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [showExplanation, setShowExplanation] = useState(false);
-  const [startedAt] = useState(() => Date.now());
-  const [remaining, setRemaining] = useState(totalTimeSec);
-  const [timeUp, setTimeUp] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(perQuestionTimeSec);
 
+  const startedAtRef = useRef<number>(Date.now());
   const current = questions[idx];
   const selected = answers[current.id];
 
-  // TIMER
+  // Reset per-question timer when question changes
   useEffect(() => {
-    const deadline = startedAt + totalTimeSec * 1000;
+    setTimeLeft(perQuestionTimeSec);
+    setShowExplanation(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, perQuestionTimeSec]);
+
+  // Timer tick (stops when explanation is shown)
+  useEffect(() => {
+    if (showExplanation) return;
 
     const t = window.setInterval(() => {
-      const left = Math.ceil((deadline - Date.now()) / 1000);
-      if (left <= 0) {
-        setRemaining(0);
-        setTimeUp(true);
-        window.clearInterval(t);
-      } else {
-        setRemaining(left);
-      }
-    }, 250);
+      setTimeLeft((prev) => {
+        if (prev <= 1) return 0;
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => window.clearInterval(t);
-  }, [startedAt, totalTimeSec]);
+  }, [showExplanation]);
 
-  // SELECT ANSWER
+  // Time up => reveal explanation (unanswered counts as wrong)
+  useEffect(() => {
+    if (showExplanation) return;
+    if (timeLeft === 0) {
+      setShowExplanation(true);
+    }
+  }, [timeLeft, showExplanation]);
+
   const select = (optIndex: number) => {
-    if (timeUp || showExplanation) return;
-
+    if (showExplanation) return;
     setAnswers((prev) => ({ ...prev, [current.id]: optIndex }));
     setShowExplanation(true);
   };
 
   const next = () => {
-    if (idx < questions.length - 1) {
-      setIdx((v) => v + 1);
-      setShowExplanation(false);
-    } else {
-      finish();
-    }
+    if (idx < questions.length - 1) setIdx((v) => v + 1);
+    else finish();
   };
 
   const finish = () => {
+    const usedSec = Math.ceil((Date.now() - startedAtRef.current) / 1000);
+
     nav(`/result/${quizId ?? "draft"}`, {
       state: {
         quizId,
         questions,
         answers,
-        totalTimeSec,
-        usedSec: totalTimeSec - remaining,
+        usedSec,
+        perQuestionTimeSec,
       },
     });
   };
@@ -117,11 +125,12 @@ export default function QuizRunner() {
             </div>
             <div style={{ fontWeight: 900, fontSize: 18 }}>#{quizId}</div>
           </div>
-          <div>
+
+          <div style={{ textAlign: "right" }}>
             <div className="muted" style={{ fontSize: 12 }}>
-              Time
+              Time (this question)
             </div>
-            <div style={{ fontWeight: 900 }}>{formatRemaining(remaining)}</div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{fmt(timeLeft)}</div>
           </div>
         </div>
 
@@ -129,56 +138,76 @@ export default function QuizRunner() {
           <div className="progressFill" style={{ width: `${progressPct}%` }} />
         </div>
 
-        <section className="card" style={{ marginTop: 20 }}>
-          <div className="muted" style={{ fontSize: 12 }}>
-            Question {idx + 1}
+        <div
+          className="spaceBetween muted"
+          style={{ marginTop: 12, fontSize: 13 }}
+        >
+          <div>
+            Question <b>{idx + 1}</b> / {questions.length}
           </div>
-          <div style={{ fontWeight: 900, fontSize: 18, marginTop: 6 }}>
-            {current.prompt}
+          <div>
+            Answered <b>{Object.keys(answers).length}</b> / {questions.length}
           </div>
+        </div>
 
-          <div className="list" style={{ marginTop: 16 }}>
+        <section className="card" style={{ marginTop: 16 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            Prompt
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 900 }}>{current.prompt}</div>
+
+          <div className="list" style={{ marginTop: 14 }}>
             {current.options.map((opt, i) => {
               const isSel = selected === i;
               const isRight = i === current.correctIndex;
-
-              let className = "option";
-              if (showExplanation) {
-                if (isRight) className += " optionSelected";
-              } else if (isSel) {
-                className += " optionSelected";
-              }
 
               return (
                 <button
                   key={i}
                   onClick={() => select(i)}
-                  className={className}
+                  className={`option ${!showExplanation && isSel ? "optionSelected" : ""}`}
                   disabled={showExplanation}
                 >
-                  <div>
-                    <b>{String.fromCharCode(65 + i)}.</b> {opt}
-                    {showExplanation && isRight && " ✅"}
-                    {showExplanation && isSel && !isRight && " ❌"}
+                  <div
+                    style={{ display: "flex", gap: 10, alignItems: "center" }}
+                  >
+                    <span className="kbd">{String.fromCharCode(65 + i)}</span>
+                    <span>{opt}</span>
+                    {showExplanation && isRight && <span>✅</span>}
+                    {showExplanation && isSel && !isRight && <span>❌</span>}
                   </div>
                 </button>
               );
             })}
           </div>
 
-          {/* EXPLANATION BLOCK */}
           {showExplanation && (
             <div
               style={{
                 marginTop: 16,
                 padding: 14,
                 borderRadius: 12,
-                background: isCorrect ? "#f0fdf4" : "#fef2f2",
-                border: `1px solid ${isCorrect ? "#bbf7d0" : "#fecaca"}`,
+                background:
+                  selected == null
+                    ? "#fff7ed"
+                    : isCorrect
+                      ? "#f0fdf4"
+                      : "#fef2f2",
+                border: `1px solid ${
+                  selected == null
+                    ? "#fed7aa"
+                    : isCorrect
+                      ? "#bbf7d0"
+                      : "#fecaca"
+                }`,
               }}
             >
               <div style={{ fontWeight: 800 }}>
-                {isCorrect ? "Correct answer 🎉" : "Incorrect answer"}
+                {selected == null
+                  ? "Time's up"
+                  : isCorrect
+                    ? "Correct"
+                    : "Incorrect"}
               </div>
               <div className="muted" style={{ marginTop: 6 }}>
                 {current.explanation}

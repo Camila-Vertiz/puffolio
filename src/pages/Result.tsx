@@ -11,8 +11,8 @@ type Question = {
 type ResultState = {
   questions: Question[];
   answers: Record<string, number>;
-  totalTimeSec: number;
   usedSec: number;
+  perQuestionTimeSec?: number; // default 45
   quizId?: string;
 };
 
@@ -45,7 +45,10 @@ export default function Result() {
     );
   }
 
-  const { questions, answers, totalTimeSec, usedSec } = state;
+  const { questions, answers, usedSec, perQuestionTimeSec } = state;
+
+  const perQ = perQuestionTimeSec ?? 45;
+  const expectedTotalSec = questions.length * perQ;
 
   let correct = 0;
   const wrongIds: string[] = [];
@@ -96,9 +99,10 @@ export default function Result() {
                   {mins(usedSec)} min
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
-                  of {mins(totalTimeSec)} min
+                  Expected ~{mins(expectedTotalSec)} min ({perQ}s/question)
                 </div>
               </div>
+
               <div>
                 <div className="muted" style={{ fontSize: 12 }}>
                   Wrong questions
@@ -146,6 +150,7 @@ export default function Result() {
                       : isChosen && !isCorrect
                         ? "#fef2f2"
                         : "#fff";
+
                     const border = isCorrect
                       ? "#bbf7d0"
                       : isChosen && !isCorrect

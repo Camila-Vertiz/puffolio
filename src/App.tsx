@@ -9,8 +9,12 @@ import Review from "./pages/Review";
 import RequireAuth from "./auth/RequireAuth";
 import RequireAdmin from "./auth/RequireAdmin";
 
-import AdminHome from "./admin/AdminHome";
 import AppLayout from "./layout/AppLayout";
+
+import AdminLayout from "./admin/AdminLayout";
+import TopicsPage from "./admin/TopicsPage";
+import QuestionsPage from "./admin/QuestionsPage";
+import QuizzesPage from "./admin/QuizzesPage";
 
 export default function App() {
   return (
@@ -36,10 +40,15 @@ export default function App() {
             path="/admin"
             element={
               <RequireAdmin>
-                <AdminHome />
+                <AdminLayout />
               </RequireAdmin>
             }
-          />
+          >
+            <Route index element={<TopicsPage />} />
+            <Route path="topics" element={<TopicsPage />} />
+            <Route path="questions" element={<QuestionsPage />} />
+            <Route path="quizzes" element={<QuizzesPage />} />
+          </Route>
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
