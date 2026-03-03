@@ -140,12 +140,32 @@ export default function QuizRunner() {
           }
         }
 
-        const finalQs = shuffle(merged).slice(0, want);
+        function shuffleQuestionOptions(q: Question): Question {
+          const withMeta = q.options.map((opt, idx) => ({
+            text: opt,
+            isCorrect: idx === q.correctIndex,
+          }));
+
+          const shuffled = shuffle(withMeta);
+
+          const newOptions = shuffled.map((o) => o.text);
+          const newCorrectIndex = shuffled.findIndex((o) => o.isCorrect);
+
+          return {
+            ...q,
+            options: newOptions,
+            correctIndex: newCorrectIndex,
+          };
+        }
+
+        const finalQs = shuffle(merged)
+          .slice(0, want)
+          .map(shuffleQuestionOptions);
         if (!finalQs.length)
           throw new Error("No active questions found for this quiz");
 
         if (cancelled) return;
-
+        
         setQuiz(qz);
         setQuestions(finalQs);
 
