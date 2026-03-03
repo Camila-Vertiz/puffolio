@@ -51,6 +51,9 @@ export default function App() {
           </Route>
         </Route>
 
+        <Route path="/review" element={<Review />} />
+        <Route path="/review/:runId" element={<Review />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
