@@ -1,122 +1,95 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { auth } from "../firebase";
-import type { Question, QuizRun } from "../data/models";
-import { getLatestQuizRun, getQuestionsByIds } from "../data/firestoreRepo";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { collection, getDocs, orderBy, query } from "firebase/firestore";
+import { auth, db } from "../firebase";
+
+type Question = {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+};
+
+type RunDoc = {
+  questions: Question[];
+  answers: Record<string, number>;
+};
 
 export default function Review() {
-  const nav = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [run, setRun] = useState<QuizRun | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [runs, setRuns] = useState<RunDoc[]>([]);
 
   useEffect(() => {
     const load = async () => {
-      const uid = auth.currentUser?.uid;
-      if (!uid) return;
+      try {
+        const u = auth.currentUser;
+        if (!u) return;
 
-      setLoading(true);
+        const qy = query(
+          collection(db, "users", u.uid, "runs"),
+          orderBy("finishedAt", "desc"),
+        );
 
-      const latest = await getLatestQuizRun(uid);
-      setRun(latest);
-
-      if (!latest || !latest.wrongQuestionIds.length) {
-        setQuestions([]);
+        const snap = await getDocs(qy);
+        setRuns(snap.docs.map((d) => d.data() as RunDoc));
+      } finally {
         setLoading(false);
-        return;
       }
-
-      const qs = await getQuestionsByIds(latest.wrongQuestionIds);
-      setQuestions(qs);
-      setLoading(false);
     };
 
-    load().catch((e) => {
-      console.error(e);
-      setLoading(false);
-    });
+    load();
   }, []);
 
-  const retakeWrong = () => {
-    // simplest: reuse quiz runner by starting the same quiz again
-    // and you can later implement a special "review mode" if you want.
-    if (!run) return;
-    nav(`/quiz/${run.quizId}`);
-  };
+  const weakQuestions = useMemo(() => {
+    const stats = new Map<string, { q: Question; wrong: number }>();
+
+    for (const run of runs) {
+      for (const q of run.questions) {
+        const answer = run.answers[q.id];
+        if (answer !== q.correctIndex) {
+          const prev = stats.get(q.id);
+          if (!prev) stats.set(q.id, { q, wrong: 1 });
+          else prev.wrong++;
+        }
+      }
+    }
+
+    return Array.from(stats.values()).sort((a, b) => b.wrong - a.wrong);
+  }, [runs]);
+
+  if (loading) return <div className="container">Loading…</div>;
+
+  if (!runs.length)
+    return (
+      <div className="container">
+        <h2>Weak questions</h2>
+        <p>No quiz runs yet. Take a quiz first.</p>
+      </div>
+    );
+
+  if (!weakQuestions.length)
+    return (
+      <div className="container">
+        <h2>Weak questions</h2>
+        <p>Great job! No weak questions found 🎉</p>
+      </div>
+    );
 
   return (
-    <div className="page">
-      <div className="container">
-        <div className="spaceBetween">
-          <div>
-            <div className="muted" style={{ fontSize: 12 }}>
-              Review
-            </div>
-            <div style={{ fontWeight: 900, fontSize: 22 }}>Weak questions</div>
-          </div>
-          <div className="row">
-            <Link className="btn" to="/">
-              Home
-            </Link>
-            {run?.quizId && (
-              <button className="btn btnPrimary" onClick={retakeWrong}>
-                Retake quiz
-              </button>
-            )}
-          </div>
-        </div>
+    <div className="container">
+      <h2>Weak questions</h2>
 
-        {loading ? (
-          <div className="muted" style={{ marginTop: 12 }}>
-            Loading…
-          </div>
-        ) : !run ? (
-          <section className="card" style={{ marginTop: 16 }}>
-            <div className="muted">No quiz runs yet. Take a quiz first.</div>
-          </section>
-        ) : run.wrongQuestionIds.length === 0 ? (
-          <section className="card" style={{ marginTop: 16 }}>
-            <div style={{ fontWeight: 900 }}>Nice.</div>
-            <div className="muted" style={{ marginTop: 6 }}>
-              No wrong questions in your latest run.
-            </div>
-          </section>
-        ) : (
-          <div className="list" style={{ marginTop: 16 }}>
-            {questions.map((q, i) => (
-              <section key={q.id} className="card">
-                <div style={{ fontWeight: 900 }}>
-                  {i + 1}. {q.prompt}
-                </div>
-                <div className="list" style={{ marginTop: 12 }}>
-                  {q.options.map((opt, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: 12,
-                        borderRadius: 12,
-                        border: `1px solid ${idx === q.correctIndex ? "#bbf7d0" : "var(--border)"}`,
-                        background: idx === q.correctIndex ? "#f0fdf4" : "#fff",
-                      }}
-                    >
-                      <span className="kbd">
-                        {String.fromCharCode(65 + idx)}
-                      </span>
-                      <span style={{ marginLeft: 8 }}>{opt}</span>
-                    </div>
-                  ))}
-                </div>
-                <div
-                  style={{ marginTop: 12, fontSize: 14, color: "var(--muted)" }}
-                >
-                  <b style={{ color: "var(--text)" }}>Explanation:</b>{" "}
-                  {q.explanation}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </div>
+      {weakQuestions.map((item, i) => (
+        <div key={item.q.id} style={{ marginBottom: 16 }}>
+          <strong>
+            {i + 1}. {item.q.prompt}
+          </strong>
+          <div style={{ color: "red" }}>Wrong attempts: {item.wrong}</div>
+        </div>
+      ))}
+
+      <Link to="/">Home</Link>
     </div>
   );
 }
