@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  addDoc,
+  collection,
   doc,
   getDoc,
-  collection,
   getDocs,
   limit,
   orderBy,
   query,
+  serverTimestamp,
   where,
   type DocumentData,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 
-// Local types (keep them independent)
+// Local types
 export type Quiz = {
   id: string;
   name: string;
@@ -65,6 +67,7 @@ export default function QuizRunner() {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+  const [finishing, setFinishing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [idx, setIdx] = useState(0);
@@ -107,7 +110,7 @@ export default function QuizRunner() {
           throw new Error("Quiz has no topics configured");
         if (!qz.isActive) throw new Error("Quiz is disabled");
 
-        // Firestore `in` supports up to 10 values. If more, chunk and merge.
+        // Firestore `in` supports up to 10 values
         const topicChunks = chunk(qz.topicIds, 10);
 
         const want = Math.max(1, qz.questionCount);
@@ -152,7 +155,7 @@ export default function QuizRunner() {
         setShowExplanation(false);
         setTimeLeft(qz.perQuestionTimeSec ?? 45);
 
-        // ✅ Date.now() only here (not during render)
+        // Date.now only here
         startedAtRef.current = Date.now();
 
         setLoading(false);
@@ -177,7 +180,7 @@ export default function QuizRunner() {
   const current = questions[idx];
   const selected = current ? answers[current.id] : undefined;
 
-  // Timer tick (no “reset setState” inside effect body)
+  // Timer tick
   useEffect(() => {
     if (!quiz) return;
     if (!questions.length) return;
@@ -222,24 +225,54 @@ export default function QuizRunner() {
     tickRef.current = null;
   };
 
-  const finish = () => {
-    const startedAt = startedAtRef.current;
-    const usedSec = startedAt ? Math.ceil((Date.now() - startedAt) / 1000) : 0;
+  const finish = async () => {
+    if (finishing) return;
 
-    nav(`/result/${quizId ?? "draft"}`, {
-      state: {
-        quizId,
-        questions,
-        answers,
+    const u = auth.currentUser;
+    if (!u) {
+      nav("/login");
+      return;
+    }
+
+    setFinishing(true);
+    try {
+      const startedAt = startedAtRef.current;
+      const usedSec = startedAt
+        ? Math.ceil((Date.now() - startedAt) / 1000)
+        : 0;
+
+      // Guarda SOLO lo necesario para resultados + review (reduce tamaño)
+      const questionsForRun = questions.map((q) => ({
+        id: q.id,
+        prompt: q.prompt,
+        options: q.options,
+        correctIndex: q.correctIndex,
+        explanation: q.explanation,
+        topicId: q.topicId, // útil para weak review
+      }));
+
+      const runPayload = {
+        quizId: quizId ?? null,
+        createdAt: serverTimestamp(),
+        finishedAt: serverTimestamp(),
         usedSec,
         perQuestionTimeSec: perQ,
-      },
-    });
+        questions: questionsForRun,
+        answers,
+      };
+
+      const runsCol = collection(db, "users", u.uid, "runs");
+      const runRef = await addDoc(runsCol, runPayload);
+
+      nav(`/result/${runRef.id}`);
+    } finally {
+      setFinishing(false);
+    }
   };
 
   const next = () => {
     if (idx < questions.length - 1) goTo(idx + 1);
-    else finish();
+    else void finish();
   };
 
   const progressPct = useMemo(() => {
@@ -406,8 +439,16 @@ export default function QuizRunner() {
               </div>
 
               <div style={{ marginTop: 14 }}>
-                <button className="btn btnPrimary" onClick={next}>
-                  {idx < questions.length - 1 ? "Continue →" : "Finish Quiz"}
+                <button
+                  className="btn btnPrimary"
+                  onClick={next}
+                  disabled={finishing}
+                >
+                  {idx < questions.length - 1
+                    ? "Continue →"
+                    : finishing
+                      ? "Saving…"
+                      : "Finish Quiz"}
                 </button>
               </div>
             </div>
@@ -421,8 +462,12 @@ export default function QuizRunner() {
           <Link className="btn btnGhost" to="/">
             Exit
           </Link>
-          <button className="btn" onClick={finish}>
-            Finish now
+          <button
+            className="btn"
+            onClick={() => void finish()}
+            disabled={finishing}
+          >
+            {finishing ? "Saving…" : "Finish now"}
           </button>
         </div>
       </div>
