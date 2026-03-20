@@ -428,24 +428,13 @@ export default function QuizRunner() {
 
           {showExplanation && (
             <div
-              style={{
-                marginTop: 16,
-                padding: 14,
-                borderRadius: 12,
-                background:
-                  selected == null
-                    ? "#fff7ed"
-                    : isCorrect
-                      ? "#f0fdf4"
-                      : "#fef2f2",
-                border: `1px solid ${
-                  selected == null
-                    ? "#fed7aa"
-                    : isCorrect
-                      ? "#bbf7d0"
-                      : "#fecaca"
-                }`,
-              }}
+              className={`feedback-container ${
+                selected == null
+                  ? "feedback-timeout"
+                  : isCorrect
+                    ? "feedback-correct"
+                    : "feedback-incorrect"
+              }`}
             >
               <div style={{ fontWeight: 800 }}>
                 {selected == null

@@ -22,17 +22,11 @@ export default function Login() {
     >
       <div className="container" style={{ maxWidth: 420 }}>
         <section className="card" style={{ textAlign: "center" }}>
-          <div style={{ marginBottom: 20 }}>
-            <div
-              style={{
-                fontWeight: 900,
-                fontSize: 26,
-                letterSpacing: "-0.02em",
-              }}
-            >
+          <div style={{ marginBottom: 24 }}>
+            <div className="brandTitle" style={{ fontSize: 36, display: "flex", justifyContent: "center" }}>
               Puffolio
             </div>
-            <div className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            <div className="subtitle" style={{ marginTop: 8 }}>
               Banqueo-style learning • Total timer • Study & Exam mode
             </div>
           </div>

@@ -61,10 +61,10 @@ export default function Home() {
       <div className="container">
         <div className="spaceBetween">
           <div>
-            <div className="muted" style={{ fontSize: 12 }}>
+            <div className="subtitle" style={{ margin: 0, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
               Quizzes
             </div>
-            <div style={{ fontWeight: 900, fontSize: 26 }}>Start</div>
+            <div className="h1">Start</div>
           </div>
 
           <div className="row">
@@ -86,12 +86,9 @@ export default function Home() {
             <div className="muted">No active quizzes. Create one in Admin.</div>
           </section>
         ) : (
-          <div
-            className="grid"
-            style={{ marginTop: 16, gridTemplateColumns: "1fr" }}
-          >
+          <div className="grid">
             <section className="card">
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>
+              <div className="cardTitle">
                 Available quizzes
               </div>
               <div className="list">
@@ -116,7 +113,7 @@ export default function Home() {
             </section>
 
             <section className="card">
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Topics</div>
+              <div className="cardTitle">Topics</div>
               <div className="list">
                 {activeTopics.map((t) => (
                   <div key={t.id} className="item">

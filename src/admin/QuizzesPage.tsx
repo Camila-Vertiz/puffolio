@@ -192,7 +192,7 @@ export default function QuizzesPage() {
     if (form.perQuestionTimeSec <= 0)
       return alert("perQuestionTimeSec must be > 0");
 
-    const payload: Omit<Quiz, "id" | "createdAt" | "updatedAt"> = {
+    const payload: Omit<Quiz, "id"> = {
       name: form.name.trim(),
       topicIds: form.topicIds,
       mode: form.mode,

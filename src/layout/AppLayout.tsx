@@ -9,7 +9,8 @@ function NavItem({ to, label }: { to: string; label: string }) {
       className="navLink"
       style={({ isActive }) => ({
         borderColor: isActive ? "var(--border)" : "transparent",
-        background: isActive ? "#fff" : "transparent",
+        background: isActive ? "rgba(255, 255, 255, 0.05)" : "transparent",
+        color: isActive ? "var(--text-primary)" : "var(--muted)",
       })}
       end={to === "/"}
     >

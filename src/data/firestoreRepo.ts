@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import type { Quiz, QuizRun, Question, Topic } from "./models";
+export type { Quiz, QuizRun, Question, Topic };
 
 /* -------------------- Admin CRUD -------------------- */
 

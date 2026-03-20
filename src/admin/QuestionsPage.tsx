@@ -7,6 +7,7 @@ import {
   query,
   startAfter,
   where,
+  getCountFromServer,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
@@ -70,6 +71,8 @@ export default function QuestionsPage() {
   // form
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [showForm, setShowForm] = useState(false);
+  const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
 
   // load topics once
   useEffect(() => {
@@ -103,63 +106,73 @@ export default function QuestionsPage() {
   }) {
     setLoading(true);
 
-    const base = collection(db, "questions");
+    try {
+      const base = collection(db, "questions");
 
-    const qy =
-      opts.topicId && opts.cursorAfter
-        ? query(
-            base,
-            where("topicId", "==", opts.topicId),
-            orderBy("createdAt", "desc"),
-            startAfter(opts.cursorAfter),
-            limit(PAGE_SIZE + 1), // +1 to detect next
-          )
-        : opts.topicId && !opts.cursorAfter
+      if (opts.pageIndex === 1 || totalQuestions === null) {
+        const countQuery = opts.topicId ? query(base, where("topicId", "==", opts.topicId)) : base;
+        getCountFromServer(countQuery).then(snap => setTotalQuestions(snap.data().count)).catch(() => {});
+      }
+
+      // If we use both where() and orderBy() on different fields, Firestore demands a composite index.
+      // To work around this missing index and prevent hanging, we omit orderBy("createdAt") when filtering by topicId.
+      const qy =
+        opts.topicId && opts.cursorAfter
           ? query(
               base,
               where("topicId", "==", opts.topicId),
-              orderBy("createdAt", "desc"),
-              limit(PAGE_SIZE + 1),
+              startAfter(opts.cursorAfter),
+              limit(PAGE_SIZE + 1), // +1 to detect next
             )
-          : !opts.topicId && opts.cursorAfter
+          : opts.topicId && !opts.cursorAfter
             ? query(
                 base,
-                orderBy("createdAt", "desc"),
-                startAfter(opts.cursorAfter),
+                where("topicId", "==", opts.topicId),
                 limit(PAGE_SIZE + 1),
               )
-            : query(base, orderBy("createdAt", "desc"), limit(PAGE_SIZE + 1));
+            : !opts.topicId && opts.cursorAfter
+              ? query(
+                  base,
+                  orderBy("createdAt", "desc"),
+                  startAfter(opts.cursorAfter),
+                  limit(PAGE_SIZE + 1),
+                )
+              : query(base, orderBy("createdAt", "desc"), limit(PAGE_SIZE + 1));
 
-    const snap = await getDocs(qy);
+      const snap = await getDocs(qy);
 
-    // take first PAGE_SIZE as the page
-    const pageDocs = snap.docs.slice(0, PAGE_SIZE);
+      // take first PAGE_SIZE as the page
+      const pageDocs = snap.docs.slice(0, PAGE_SIZE);
 
-    const items = pageDocs.map((d) => {
-      const data = d.data() as Omit<Question, "id">;
-      return { id: d.id, ...data };
-    });
-
-    setRows(items);
-
-    // next page exists if we got extra doc
-    const nextExists = snap.docs.length > PAGE_SIZE;
-    setHasNext(nextExists);
-
-    // cursor for NEXT page should be the last doc of this page
-    const nextCursor = pageDocs.at(-1) ?? null;
-
-    if (opts.updateCursors) {
-      setPageCursors((prev) => {
-        const copy = prev.slice(0, opts.pageIndex); // keep up to current page index
-        // copy length should equal pageIndex
-        // store cursor for next page at index pageIndex (since pageIndex is 1-based)
-        copy[opts.pageIndex] = nextCursor;
-        return copy;
+      const items = pageDocs.map((d) => {
+        const data = d.data() as Omit<Question, "id">;
+        return { id: d.id, ...data };
       });
-    }
 
-    setLoading(false);
+      setRows(items);
+
+      // next page exists if we got extra doc
+      const nextExists = snap.docs.length > PAGE_SIZE;
+      setHasNext(nextExists);
+
+      // cursor for NEXT page should be the last doc of this page
+      const nextCursor = pageDocs.at(-1) ?? null;
+
+      if (opts.updateCursors) {
+        setPageCursors((prev) => {
+          const copy = prev.slice(0, opts.pageIndex); // keep up to current page index
+          // copy length should equal pageIndex
+          // store cursor for next page at index pageIndex (since pageIndex is 1-based)
+          copy[opts.pageIndex] = nextCursor;
+          return copy;
+        });
+      }
+    } catch (err: any) {
+      console.error("fetchPage error:", err);
+      alert("Failed to fetch questions: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   // initial load
@@ -245,6 +258,7 @@ export default function QuestionsPage() {
       ...emptyForm,
       topicId: topics[0]?.id ?? filterTopicId ?? "",
     });
+    setShowForm(true);
   };
 
   const startEdit = (q: Question) => {
@@ -258,6 +272,13 @@ export default function QuestionsPage() {
       difficulty: normalizeDifficulty(q.difficulty),
       isActive: q.isActive ?? true,
     });
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
   };
 
   const save = async () => {
@@ -283,6 +304,7 @@ export default function QuestionsPage() {
     if (editingId) await updateQuestion(editingId, payload);
     else await createQuestion(payload);
 
+    setShowForm(false);
     setEditingId(null);
     setForm(emptyForm);
 
@@ -312,14 +334,14 @@ export default function QuestionsPage() {
   };
 
   return (
-    <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 16 }}>
-      {/* TABLE */}
-      <section className="card">
+    <div style={{ paddingBottom: 40 }}>
+      {!showForm ? (
+      <section className="card" style={{ marginTop: 24 }}>
         <div className="spaceBetween">
           <div>
-            <div style={{ fontWeight: 900 }}>Questions</div>
-            <div className="muted" style={{ fontSize: 13 }}>
-              Table + search + real pages
+            <div className="cardTitle" style={{ margin: 0 }}>Questions</div>
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Total: <b style={{ color: "var(--text)" }}>{totalQuestions !== null ? totalQuestions : "..."}</b> • Showing page {page}
             </div>
           </div>
 
@@ -334,12 +356,7 @@ export default function QuestionsPage() {
           <select
             value={filterTopicId}
             onChange={(e) => onChangeTopic(e.target.value)}
-            style={{
-              padding: 10,
-              borderRadius: 12,
-              border: "1px solid var(--border)",
-              minWidth: 220,
-            }}
+            style={{ minWidth: 220 }}
           >
             <option value="">All topics</option>
             {topics.map((t) => (
@@ -353,13 +370,7 @@ export default function QuestionsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search current page…"
-            style={{
-              flex: 1,
-              minWidth: 220,
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid var(--border)",
-            }}
+            style={{ flex: 1, minWidth: 220 }}
           />
 
           <div className="row">
@@ -387,97 +398,92 @@ export default function QuestionsPage() {
           Showing <b>{visible.length}</b> rows on this page.
         </div>
 
-        <div style={{ overflowX: "auto", marginTop: 12 }}>
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "separate",
-              borderSpacing: 0,
-            }}
-          >
-            <thead>
-              <tr>
-                <th style={thLeft}>Prompt</th>
-                <th style={thLeft}>Topic</th>
-                <th style={thLeft}>Difficulty</th>
-                <th style={thLeft}>Status</th>
-                <th style={thRight}>Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {visible.map((q) => (
-                <tr key={q.id}>
-                  <td style={tdLeft}>
-                    <div style={{ fontWeight: 800 }}>{q.prompt}</div>
-                    <div
-                      className="muted"
-                      style={{ fontSize: 12, marginTop: 6 }}
-                    >
-                      A: {q.options?.[0]} • B: {q.options?.[1]} • C:{" "}
-                      {q.options?.[2]} • D: {q.options?.[3]}
-                    </div>
-                    <div
-                      className="muted"
-                      style={{ fontSize: 12, marginTop: 6 }}
-                    >
-                      correct: {String.fromCharCode(65 + (q.correctIndex ?? 0))}
-                    </div>
-                  </td>
-
-                  <td style={tdLeft}>{topicName(q.topicId)}</td>
-
-                  <td style={tdLeft}>
-                    <span
-                      className="badge"
-                      style={{ borderColor: "var(--border)" }}
-                    >
+        <div className="list" style={{ marginTop: 16 }}>
+          {visible.map((q) => (
+            <div key={q.id} className="item" style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 16 }}>
+              
+              <div className="spaceBetween" style={{ width: "100%", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <div className="itemName" style={{ fontSize: 18, lineHeight: 1.4 }}>{q.prompt}</div>
+                  
+                  <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                    <span className="badge">{topicName(q.topicId)}</span>
+                    <span className="badge" style={{ color: "var(--link)", borderColor: "rgba(96,165,250,0.3)" }}>
                       {normalizeDifficulty(q.difficulty)}
                     </span>
-                  </td>
-
-                  <td style={tdLeft}>
                     <span
                       className="badge"
                       style={{
-                        color: q.isActive ? "#166534" : "#6b7280",
-                        borderColor: q.isActive ? "#bbf7d0" : "var(--border)",
+                        color: q.isActive ? "#4ade80" : "#94a3b8",
+                        borderColor: q.isActive ? "rgba(74,222,128,0.2)" : "var(--border)",
+                        background: q.isActive ? "rgba(74,222,128,0.05)" : "transparent"
                       }}
                     >
-                      {q.isActive ? "active" : "inactive"}
+                      {q.isActive ? "Active" : "Inactive"}
                     </span>
-                  </td>
+                  </div>
+                </div>
 
-                  <td style={tdRight}>
-                    <div className="row" style={{ justifyContent: "flex-end" }}>
-                      <button className="btn" onClick={() => startEdit(q)}>
-                        Edit
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() =>
-                          updateQuestion(q.id, { isActive: !q.isActive })
-                        }
-                      >
-                        {q.isActive ? "Disable" : "Enable"}
-                      </button>
-                      <button className="btn" onClick={() => remove(q.id)}>
-                        Delete
-                      </button>
+                <div className="row" style={{ flexShrink: 0 }}>
+                  <button className="btn" onClick={() => startEdit(q)} style={{ padding: "6px 12px", fontSize: 13 }}>
+                    Edit
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => updateQuestion(q.id, { isActive: !q.isActive })}
+                    style={{ padding: "6px 12px", fontSize: 13 }}
+                  >
+                    {q.isActive ? "Disable" : "Enable"}
+                  </button>
+                  <button className="btn" onClick={() => remove(q.id)} style={{ padding: "6px 12px", fontSize: 13 }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 0 }}>
+                {q.options?.map((opt, i) => (
+                  <div 
+                    key={i} 
+                    style={{ 
+                      padding: "10px 14px", 
+                      borderRadius: 10, 
+                      fontSize: 14,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      border: `1px solid ${i === q.correctIndex ? "var(--primary)" : "var(--border)"}`, 
+                      background: i === q.correctIndex ? "rgba(59, 130, 246, 0.1)" : "rgba(255,255,255,0.02)",
+                      color: i === q.correctIndex ? "var(--text-primary)" : "var(--muted)"
+                    }}
+                  >
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: i === q.correctIndex ? "var(--primary)" : "rgba(255,255,255,0.05)",
+                      color: i === q.correctIndex ? "#fff" : "var(--text)"
+                    }}>
+                      {String.fromCharCode(65 + i)}
                     </div>
-                  </td>
-                </tr>
-              ))}
+                    <span>{opt}</span>
+                  </div>
+                ))}
+              </div>
 
-              {!loading && visible.length === 0 && (
-                <tr>
-                  <td style={{ ...tdLeft, padding: 16 }} colSpan={5}>
-                    <span className="muted">No results.</span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          ))}
+
+          {!loading && visible.length === 0 && (
+            <div className="item" style={{ justifyContent: "center", padding: 32 }}>
+              <span className="muted">No results found.</span>
+            </div>
+          )}
         </div>
 
         {loading && (
@@ -486,11 +492,15 @@ export default function QuestionsPage() {
           </div>
         )}
       </section>
-
-      {/* FORM */}
-      <section className="card">
-        <div style={{ fontWeight: 900 }}>
-          {editingId ? "Edit Question" : "Create Question"}
+      ) : (
+      <section className="card" style={{ marginTop: 24 }}>
+        <div className="spaceBetween">
+          <div className="cardTitle" style={{ margin: 0 }}>
+            {editingId ? "Edit Question" : "Create Question"}
+          </div>
+          <button className="btn btnGhost" onClick={closeForm}>
+            ✕ Close
+          </button>
         </div>
 
         <div className="list" style={{ marginTop: 12 }}>
@@ -503,11 +513,6 @@ export default function QuestionsPage() {
               onChange={(e) =>
                 setForm((p) => ({ ...p, topicId: e.target.value }))
               }
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-              }}
             >
               <option value="" disabled>
                 Select…
@@ -530,12 +535,7 @@ export default function QuestionsPage() {
                 setForm((p) => ({ ...p, prompt: e.target.value }))
               }
               rows={3}
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                resize: "vertical",
-              }}
+              style={{ resize: "vertical" }}
               placeholder="Write the question text…"
             />
           </label>
@@ -556,11 +556,6 @@ export default function QuestionsPage() {
                       return { ...p, options: next };
                     });
                   }}
-                  style={{
-                    padding: 12,
-                    borderRadius: 12,
-                    border: "1px solid var(--border)",
-                  }}
                 />
               </label>
             ))}
@@ -579,11 +574,6 @@ export default function QuestionsPage() {
                     correctIndex: Number(e.target.value),
                   }))
                 }
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                }}
               >
                 <option value={0}>A</option>
                 <option value={1}>B</option>
@@ -604,11 +594,6 @@ export default function QuestionsPage() {
                     difficulty: normalizeDifficulty(e.target.value),
                   }))
                 }
-                style={{
-                  padding: 12,
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                }}
               >
                 <option value="easy">easy</option>
                 <option value="medium">medium</option>
@@ -627,12 +612,7 @@ export default function QuestionsPage() {
                 setForm((p) => ({ ...p, explanation: e.target.value }))
               }
               rows={3}
-              style={{
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                resize: "vertical",
-              }}
+              style={{ resize: "vertical" }}
               placeholder="Explain why the answer is correct…"
             />
           </label>
@@ -648,42 +628,19 @@ export default function QuestionsPage() {
             <span>Active</span>
           </label>
 
-          <div className="row">
-            <button className="btn btnPrimary" onClick={save}>
-              {editingId ? "Save changes" : "Create"}
+          <div className="row" style={{ marginTop: 20 }}>
+            <button className="btn" onClick={closeForm}>
+              Cancel
             </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setEditingId(null);
-                setForm(emptyForm);
-              }}
-            >
-              Clear
+            <button className="btn btnPrimary" onClick={save}>
+              {editingId ? "Save changes" : "Create Question"}
             </button>
           </div>
         </div>
       </section>
+      )}
     </div>
   );
 }
 
-const thLeft: React.CSSProperties = {
-  textAlign: "left",
-  padding: 12,
-  borderBottom: "1px solid var(--border)",
-  fontSize: 12,
-  color: "var(--muted)",
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-};
 
-const thRight: React.CSSProperties = { ...thLeft, textAlign: "right" };
-
-const tdLeft: React.CSSProperties = {
-  padding: 12,
-  borderBottom: "1px solid var(--border)",
-  verticalAlign: "top",
-};
-
-const tdRight: React.CSSProperties = { ...tdLeft, textAlign: "right" };
