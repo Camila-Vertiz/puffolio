@@ -504,6 +504,104 @@ textarea::placeholder {
   color: var(--text-primary);
 }
 
+/* react-md-editor dark theme overrides */
+.wmde-markdown {
+  background: transparent !important;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+  color: inherit !important;
+}
+
+.wmde-markdown p,
+.wmde-markdown h1,
+.wmde-markdown h2,
+.wmde-markdown h3,
+.wmde-markdown h4,
+.wmde-markdown h5,
+.wmde-markdown h6,
+.wmde-markdown ul,
+.wmde-markdown ol,
+.wmde-markdown li,
+.wmde-markdown blockquote {
+  display: block !important;
+}
+
+.wmde-markdown p {
+  margin: 0 0 0.5em !important;
+  line-height: 1.6 !important;
+}
+
+.wmde-markdown p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.wmde-markdown ul,
+.wmde-markdown ol {
+  padding-left: 1.5em !important;
+  margin: 0.25em 0 0.5em !important;
+}
+
+.wmde-markdown li {
+  margin: 0.15em 0 !important;
+}
+
+.wmde-markdown strong,
+.wmde-markdown b {
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+}
+
+.wmde-markdown em,
+.wmde-markdown i {
+  font-style: italic !important;
+}
+
+.wmde-markdown br {
+  display: block !important;
+  content: "" !important;
+  margin: 0 !important;
+}
+
+.wmde-markdown code,
+.wmde-markdown pre {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-radius: 6px;
+  color: #93c5fd !important;
+}
+
+.wmde-markdown blockquote {
+  border-left-color: var(--primary) !important;
+  color: var(--muted) !important;
+}
+
+.w-md-editor {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  color: var(--text-primary) !important;
+}
+
+.w-md-editor-toolbar {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 12px 12px 0 0 !important;
+}
+
+.w-md-editor-toolbar button {
+  color: var(--muted) !important;
+}
+
+.w-md-editor-toolbar button:hover {
+  color: var(--text-primary) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.w-md-editor-text-input,
+.w-md-editor-text-pre {
+  color: var(--text-primary) !important;
+  caret-color: var(--text-primary) !important;
+}
+
 /* Responsive paddings */
 @media (max-width: 520px) {
   .brandTag {

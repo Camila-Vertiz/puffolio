@@ -18,6 +18,9 @@ import {
   updateQuestion,
 } from "../data/firestoreRepo";
 import type { Topic, Question } from "../data/firestoreRepo";
+import MDEditor from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
+import remarkBreaks from "remark-breaks";
 
 type Difficulty = "easy" | "medium" | "hard";
 
@@ -111,7 +114,7 @@ export default function QuestionsPage() {
 
       if (opts.pageIndex === 1 || totalQuestions === null) {
         const countQuery = opts.topicId ? query(base, where("topicId", "==", opts.topicId)) : base;
-        getCountFromServer(countQuery).then(snap => setTotalQuestions(snap.data().count)).catch(() => {});
+        getCountFromServer(countQuery).then(snap => setTotalQuestions(snap.data().count)).catch(() => { });
       }
 
       // If we use both where() and orderBy() on different fields, Firestore demands a composite index.
@@ -119,24 +122,24 @@ export default function QuestionsPage() {
       const qy =
         opts.topicId && opts.cursorAfter
           ? query(
-              base,
-              where("topicId", "==", opts.topicId),
-              startAfter(opts.cursorAfter),
-              limit(PAGE_SIZE + 1), // +1 to detect next
-            )
+            base,
+            where("topicId", "==", opts.topicId),
+            startAfter(opts.cursorAfter),
+            limit(PAGE_SIZE + 1), // +1 to detect next
+          )
           : opts.topicId && !opts.cursorAfter
             ? query(
-                base,
-                where("topicId", "==", opts.topicId),
-                limit(PAGE_SIZE + 1),
-              )
+              base,
+              where("topicId", "==", opts.topicId),
+              limit(PAGE_SIZE + 1),
+            )
             : !opts.topicId && opts.cursorAfter
               ? query(
-                  base,
-                  orderBy("createdAt", "desc"),
-                  startAfter(opts.cursorAfter),
-                  limit(PAGE_SIZE + 1),
-                )
+                base,
+                orderBy("createdAt", "desc"),
+                startAfter(opts.cursorAfter),
+                limit(PAGE_SIZE + 1),
+              )
               : query(base, orderBy("createdAt", "desc"), limit(PAGE_SIZE + 1));
 
       const snap = await getDocs(qy);
@@ -336,308 +339,304 @@ export default function QuestionsPage() {
   return (
     <div style={{ paddingBottom: 40 }}>
       {!showForm ? (
-      <section className="card" style={{ marginTop: 24 }}>
-        <div className="spaceBetween">
-          <div>
-            <div className="cardTitle" style={{ margin: 0 }}>Questions</div>
-            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-              Total: <b style={{ color: "var(--text)" }}>{totalQuestions !== null ? totalQuestions : "..."}</b> • Showing page {page}
-            </div>
-          </div>
-
-          <div className="row">
-            <button className="btn" onClick={startCreate}>
-              + New
-            </button>
-          </div>
-        </div>
-
-        <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
-          <select
-            value={filterTopicId}
-            onChange={(e) => onChangeTopic(e.target.value)}
-            style={{ minWidth: 220 }}
-          >
-            <option value="">All topics</option>
-            {topics.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search current page…"
-            style={{ flex: 1, minWidth: 220 }}
-          />
-
-          <div className="row">
-            <button
-              className="btn"
-              onClick={goPrev}
-              disabled={loading || page <= 1}
-            >
-              Prev
-            </button>
-            <span className="muted" style={{ fontSize: 12 }}>
-              Page <b style={{ color: "var(--text)" }}>{page}</b>
-            </span>
-            <button
-              className="btn"
-              onClick={goNext}
-              disabled={loading || !hasNext}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-
-        <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-          Showing <b>{visible.length}</b> rows on this page.
-        </div>
-
-        <div className="list" style={{ marginTop: 16 }}>
-          {visible.map((q) => (
-            <div key={q.id} className="item" style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 16 }}>
-              
-              <div className="spaceBetween" style={{ width: "100%", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 260 }}>
-                  <div className="itemName" style={{ fontSize: 18, lineHeight: 1.4 }}>{q.prompt}</div>
-                  
-                  <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                    <span className="badge">{topicName(q.topicId)}</span>
-                    <span className="badge" style={{ color: "var(--link)", borderColor: "rgba(96,165,250,0.3)" }}>
-                      {normalizeDifficulty(q.difficulty)}
-                    </span>
-                    <span
-                      className="badge"
-                      style={{
-                        color: q.isActive ? "#4ade80" : "#94a3b8",
-                        borderColor: q.isActive ? "rgba(74,222,128,0.2)" : "var(--border)",
-                        background: q.isActive ? "rgba(74,222,128,0.05)" : "transparent"
-                      }}
-                    >
-                      {q.isActive ? "Active" : "Inactive"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="row" style={{ flexShrink: 0 }}>
-                  <button className="btn" onClick={() => startEdit(q)} style={{ padding: "6px 12px", fontSize: 13 }}>
-                    Edit
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => updateQuestion(q.id, { isActive: !q.isActive })}
-                    style={{ padding: "6px 12px", fontSize: 13 }}
-                  >
-                    {q.isActive ? "Disable" : "Enable"}
-                  </button>
-                  <button className="btn" onClick={() => remove(q.id)} style={{ padding: "6px 12px", fontSize: 13 }}>
-                    Delete
-                  </button>
-                </div>
+        <section className="card" style={{ marginTop: 24 }}>
+          <div className="spaceBetween">
+            <div>
+              <div className="cardTitle" style={{ margin: 0 }}>Questions</div>
+              <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                Total: <b style={{ color: "var(--text)" }}>{totalQuestions !== null ? totalQuestions : "..."}</b> • Showing page {page}
               </div>
-
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 0 }}>
-                {q.options?.map((opt, i) => (
-                  <div 
-                    key={i} 
-                    style={{ 
-                      padding: "10px 14px", 
-                      borderRadius: 10, 
-                      fontSize: 14,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      border: `1px solid ${i === q.correctIndex ? "var(--primary)" : "var(--border)"}`, 
-                      background: i === q.correctIndex ? "rgba(59, 130, 246, 0.1)" : "rgba(255,255,255,0.02)",
-                      color: i === q.correctIndex ? "var(--text-primary)" : "var(--muted)"
-                    }}
-                  >
-                    <div style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 24,
-                      height: 24,
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: i === q.correctIndex ? "var(--primary)" : "rgba(255,255,255,0.05)",
-                      color: i === q.correctIndex ? "#fff" : "var(--text)"
-                    }}>
-                      {String.fromCharCode(65 + i)}
-                    </div>
-                    <span>{opt}</span>
-                  </div>
-                ))}
-              </div>
-
             </div>
-          ))}
 
-          {!loading && visible.length === 0 && (
-            <div className="item" style={{ justifyContent: "center", padding: 32 }}>
-              <span className="muted">No results found.</span>
+            <div className="row">
+              <button className="btn" onClick={startCreate}>
+                + New
+              </button>
             </div>
-          )}
-        </div>
-
-        {loading && (
-          <div className="muted" style={{ marginTop: 12 }}>
-            Loading…
           </div>
-        )}
-      </section>
-      ) : (
-      <section className="card" style={{ marginTop: 24 }}>
-        <div className="spaceBetween">
-          <div className="cardTitle" style={{ margin: 0 }}>
-            {editingId ? "Edit Question" : "Create Question"}
-          </div>
-          <button className="btn btnGhost" onClick={closeForm}>
-            ✕ Close
-          </button>
-        </div>
 
-        <div className="list" style={{ marginTop: 12 }}>
-          <label className="list">
-            <span className="muted" style={{ fontSize: 12 }}>
-              Topic
-            </span>
+          <div className="row" style={{ marginTop: 12, alignItems: "center" }}>
             <select
-              value={form.topicId}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, topicId: e.target.value }))
-              }
+              value={filterTopicId}
+              onChange={(e) => onChangeTopic(e.target.value)}
+              style={{ minWidth: 220 }}
             >
-              <option value="" disabled>
-                Select…
-              </option>
+              <option value="">All topics</option>
               {topics.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
               ))}
             </select>
-          </label>
 
-          <label className="list">
-            <span className="muted" style={{ fontSize: 12 }}>
-              Prompt
-            </span>
-            <textarea
-              value={form.prompt}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, prompt: e.target.value }))
-              }
-              rows={3}
-              style={{ resize: "vertical" }}
-              placeholder="Write the question text…"
-            />
-          </label>
-
-          <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 12 }}>
-            {form.options.map((opt, i) => (
-              <label key={i} className="list">
-                <span className="muted" style={{ fontSize: 12 }}>
-                  Option {String.fromCharCode(65 + i)}
-                </span>
-                <input
-                  value={opt}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setForm((p) => {
-                      const next = [...p.options];
-                      next[i] = v;
-                      return { ...p, options: next };
-                    });
-                  }}
-                />
-              </label>
-            ))}
-          </div>
-
-          <div className="row">
-            <label className="list" style={{ flex: 1 }}>
-              <span className="muted" style={{ fontSize: 12 }}>
-                Correct
-              </span>
-              <select
-                value={form.correctIndex}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    correctIndex: Number(e.target.value),
-                  }))
-                }
-              >
-                <option value={0}>A</option>
-                <option value={1}>B</option>
-                <option value={2}>C</option>
-                <option value={3}>D</option>
-              </select>
-            </label>
-
-            <label className="list" style={{ flex: 1 }}>
-              <span className="muted" style={{ fontSize: 12 }}>
-                Difficulty
-              </span>
-              <select
-                value={form.difficulty}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    difficulty: normalizeDifficulty(e.target.value),
-                  }))
-                }
-              >
-                <option value="easy">easy</option>
-                <option value="medium">medium</option>
-                <option value="hard">hard</option>
-              </select>
-            </label>
-          </div>
-
-          <label className="list">
-            <span className="muted" style={{ fontSize: 12 }}>
-              Explanation
-            </span>
-            <textarea
-              value={form.explanation}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, explanation: e.target.value }))
-              }
-              rows={3}
-              style={{ resize: "vertical" }}
-              placeholder="Explain why the answer is correct…"
-            />
-          </label>
-
-          <label className="row">
             <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, isActive: e.target.checked }))
-              }
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search current page…"
+              style={{ flex: 1, minWidth: 220 }}
             />
-            <span>Active</span>
-          </label>
 
-          <div className="row" style={{ marginTop: 20 }}>
-            <button className="btn" onClick={closeForm}>
-              Cancel
-            </button>
-            <button className="btn btnPrimary" onClick={save}>
-              {editingId ? "Save changes" : "Create Question"}
+            <div className="row">
+              <button
+                className="btn"
+                onClick={goPrev}
+                disabled={loading || page <= 1}
+              >
+                Prev
+              </button>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Page <b style={{ color: "var(--text)" }}>{page}</b>
+              </span>
+              <button
+                className="btn"
+                onClick={goNext}
+                disabled={loading || !hasNext}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+            Showing <b>{visible.length}</b> rows on this page.
+          </div>
+
+          <div className="list" style={{ marginTop: 16 }}>
+            {visible.map((q) => (
+              <div key={q.id} className="item" style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 16 }}>
+
+                <div className="spaceBetween" style={{ width: "100%", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 260 }}>
+                    <div data-color-mode="dark" style={{ fontSize: 16, lineHeight: 1.5 }}>
+                      <MDEditor.Markdown source={q.prompt} remarkPlugins={[remarkBreaks]} style={{ background: "transparent", color: "var(--text-primary)", fontFamily: "inherit" }} />
+                    </div>
+
+                    <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                      <span className="badge">{topicName(q.topicId)}</span>
+                      <span className="badge" style={{ color: "var(--link)", borderColor: "rgba(96,165,250,0.3)" }}>
+                        {normalizeDifficulty(q.difficulty)}
+                      </span>
+                      <span
+                        className="badge"
+                        style={{
+                          color: q.isActive ? "#4ade80" : "#94a3b8",
+                          borderColor: q.isActive ? "rgba(74,222,128,0.2)" : "var(--border)",
+                          background: q.isActive ? "rgba(74,222,128,0.05)" : "transparent"
+                        }}
+                      >
+                        {q.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="row" style={{ flexShrink: 0 }}>
+                    <button className="btn" onClick={() => startEdit(q)} style={{ padding: "6px 12px", fontSize: 13 }}>
+                      Edit
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => updateQuestion(q.id, { isActive: !q.isActive })}
+                      style={{ padding: "6px 12px", fontSize: 13 }}
+                    >
+                      {q.isActive ? "Disable" : "Enable"}
+                    </button>
+                    <button className="btn" onClick={() => remove(q.id)} style={{ padding: "6px 12px", fontSize: 13 }}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 0 }}>
+                  {q.options?.map((opt, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        fontSize: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        border: `1px solid ${i === q.correctIndex ? "var(--primary)" : "var(--border)"}`,
+                        background: i === q.correctIndex ? "rgba(59, 130, 246, 0.1)" : "rgba(255,255,255,0.02)",
+                        color: i === q.correctIndex ? "var(--text-primary)" : "var(--muted)"
+                      }}
+                    >
+                      <div style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        background: i === q.correctIndex ? "var(--primary)" : "rgba(255,255,255,0.05)",
+                        color: i === q.correctIndex ? "#fff" : "var(--text)"
+                      }}>
+                        {String.fromCharCode(65 + i)}
+                      </div>
+                      <span>{opt}</span>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+            ))}
+
+            {!loading && visible.length === 0 && (
+              <div className="item" style={{ justifyContent: "center", padding: 32 }}>
+                <span className="muted">No results found.</span>
+              </div>
+            )}
+          </div>
+
+          {loading && (
+            <div className="muted" style={{ marginTop: 12 }}>
+              Loading…
+            </div>
+          )}
+        </section>
+      ) : (
+        <section className="card" style={{ marginTop: 24 }}>
+          <div className="spaceBetween">
+            <div className="cardTitle" style={{ margin: 0 }}>
+              {editingId ? "Edit Question" : "Create Question"}
+            </div>
+            <button className="btn btnGhost" onClick={closeForm}>
+              ✕ Close
             </button>
           </div>
-        </div>
-      </section>
+
+          <div className="list" style={{ marginTop: 12 }}>
+            <label className="list">
+              <span className="muted" style={{ fontSize: 12 }}>
+                Topic
+              </span>
+              <select
+                value={form.topicId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, topicId: e.target.value }))
+                }
+              >
+                <option value="" disabled>
+                  Select…
+                </option>
+                {topics.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="list">
+              <span className="muted" style={{ fontSize: 12 }}>Prompt</span>
+              <div data-color-mode="dark">
+                <MDEditor
+                  value={form.prompt}
+                  onChange={(v) => setForm((p) => ({ ...p, prompt: v ?? "" }))}
+                  height={200}
+                  preview="edit"
+                />
+              </div>
+            </div>
+
+            <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 12 }}>
+              {form.options.map((opt, i) => (
+                <label key={i} className="list">
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    Option {String.fromCharCode(65 + i)}
+                  </span>
+                  <input
+                    value={opt}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((p) => {
+                        const next = [...p.options];
+                        next[i] = v;
+                        return { ...p, options: next };
+                      });
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="row">
+              <label className="list" style={{ flex: 1 }}>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Correct
+                </span>
+                <select
+                  value={form.correctIndex}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      correctIndex: Number(e.target.value),
+                    }))
+                  }
+                >
+                  <option value={0}>A</option>
+                  <option value={1}>B</option>
+                  <option value={2}>C</option>
+                  <option value={3}>D</option>
+                </select>
+              </label>
+
+              <label className="list" style={{ flex: 1 }}>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Difficulty
+                </span>
+                <select
+                  value={form.difficulty}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      difficulty: normalizeDifficulty(e.target.value),
+                    }))
+                  }
+                >
+                  <option value="easy">easy</option>
+                  <option value="medium">medium</option>
+                  <option value="hard">hard</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="list">
+              <span className="muted" style={{ fontSize: 12 }}>Explanation</span>
+              <div data-color-mode="dark">
+                <MDEditor
+                  value={form.explanation}
+                  onChange={(v) => setForm((p) => ({ ...p, explanation: v ?? "" }))}
+                  height={150}
+                  preview="edit"
+                />
+              </div>
+            </div>
+
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={form.isActive}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, isActive: e.target.checked }))
+                }
+              />
+              <span>Active</span>
+            </label>
+
+            <div className="row" style={{ marginTop: 20 }}>
+              <button className="btn" onClick={closeForm}>
+                Cancel
+              </button>
+              <button className="btn btnPrimary" onClick={save}>
+                {editingId ? "Save changes" : "Create Question"}
+              </button>
+            </div>
+          </div>
+        </section>
       )}
     </div>
   );

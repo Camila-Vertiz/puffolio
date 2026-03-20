@@ -14,6 +14,9 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import MDEditor from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
+import remarkBreaks from "remark-breaks";
 
 // Local types
 export type Quiz = {
@@ -399,7 +402,9 @@ export default function QuizRunner() {
           <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
             Prompt
           </div>
-          <div style={{ fontSize: 18, fontWeight: 900 }}>{current.prompt}</div>
+          <div data-color-mode="dark" style={{ fontSize: 18, fontWeight: 700 }}>
+            <MDEditor.Markdown source={current.prompt} remarkPlugins={[remarkBreaks]} style={{ background: "transparent", color: "var(--text-primary)", fontFamily: "inherit" }} />
+          </div>
 
           <div className="list" style={{ marginTop: 14 }}>
             {current.options.map((opt, i) => {
@@ -444,7 +449,9 @@ export default function QuizRunner() {
                     : "Incorrect"}
               </div>
               <div className="muted" style={{ marginTop: 6 }}>
-                {current.explanation}
+                <div data-color-mode="dark">
+                  <MDEditor.Markdown source={current.explanation} remarkPlugins={[remarkBreaks]} style={{ background: "transparent", color: "var(--muted)", fontFamily: "inherit", fontSize: 14 }} />
+                </div>
               </div>
 
               <div style={{ marginTop: 14 }}>
